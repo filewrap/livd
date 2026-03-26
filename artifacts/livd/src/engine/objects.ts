@@ -28,43 +28,72 @@ export function glowMaterial(color: number, emissive: number, intensity = 0.25):
   });
 }
 
-// ─── Background Shape Factory ─────────────────────────────────────────────
-export interface BgObject {
-  mesh: THREE.Mesh;
-  rotVel: THREE.Vector3;
-  basePos: THREE.Vector3;
-  crackMorph: number;  // 0–1
+// ─── Galaxy Particle System ────────────────────────────────────────────────
+export interface Galaxy {
+  points: THREE.Points;
+  starCore: THREE.Mesh;
+  coreLight: THREE.PointLight;
 }
 
-export function createBgObjects(): BgObject[] {
-  const configs: {
-    geo: THREE.BufferGeometry;
-    pos: [number, number, number];
-  }[] = [
-    { geo: new THREE.IcosahedronGeometry(0.65, 1), pos: [-3.8, 0.8, -4.5] },
-    { geo: new THREE.OctahedronGeometry(0.80, 1),  pos: [ 3.5,-0.6, -5.0] },
-    { geo: new THREE.DodecahedronGeometry(0.60, 0),pos: [-3.2,-1.5, -4.0] },
-    { geo: new THREE.IcosahedronGeometry(0.50, 1), pos: [ 3.8, 1.8, -5.5] },
-  ];
+export function createGalaxy(): Galaxy {
+  const N = 2200;
+  const pos = new Float32Array(N * 3);
+  const col = new Float32Array(N * 3);
+  const ARMS = 3;
 
-  return configs.map(({ geo, pos }) => {
-    const mat = deepMaterial(0x0e0e0e);
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.set(...pos);
-    mesh.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    return {
-      mesh,
-      rotVel: new THREE.Vector3(
-        (Math.random() - 0.5) * 0.004,
-        (Math.random() - 0.5) * 0.004,
-        (Math.random() - 0.5) * 0.003,
-      ),
-      basePos: new THREE.Vector3(...pos),
-      crackMorph: 0,
-    };
+  for (let i = 0; i < N; i++) {
+    const arm = Math.floor(Math.random() * ARMS);
+    const armOffset = (arm / ARMS) * Math.PI * 2;
+    const t = Math.pow(Math.random(), 0.65); // bias toward center
+    const radius = t * 5.2;
+    const spinAngle = radius * 2.0 + armOffset;
+    const scatter = (0.9 - t * 0.55) * (Math.random() - 0.5) * 1.1;
+
+    pos[i * 3]     = Math.cos(spinAngle) * radius + scatter;
+    pos[i * 3 + 1] = (Math.random() - 0.5) * 0.38 * (1 - t * 0.55);
+    pos[i * 3 + 2] = Math.sin(spinAngle) * radius + scatter;
+
+    const brightness = 0.035 + (1 - t) * 0.13 + Math.random() * 0.055;
+    const blueShift = 0.85 + Math.random() * 0.15;
+    col[i * 3]     = brightness * 0.72;
+    col[i * 3 + 1] = brightness * 0.86;
+    col[i * 3 + 2] = brightness * blueShift;
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
+
+  const mat = new THREE.PointsMaterial({
+    size: 0.038,
+    vertexColors: true,
+    transparent: true,
+    opacity: 0.62,
+    sizeAttenuation: true,
+    depthWrite: false,
   });
+
+  const points = new THREE.Points(geo, mat);
+  points.position.set(0, -0.4, -7.5);
+  points.rotation.x = Math.PI * 0.1;
+
+  // Central star core
+  const coreGeo = new THREE.SphereGeometry(0.10, 12, 12);
+  const coreMat = new THREE.MeshPhysicalMaterial({
+    color: 0x99bbff,
+    emissive: 0x2244cc,
+    emissiveIntensity: 1.4,
+    transparent: true,
+    opacity: 0.75,
+  });
+  const starCore = new THREE.Mesh(coreGeo, coreMat);
+  starCore.position.set(0, -0.4, -7.5);
+
+  // Point light from core
+  const coreLight = new THREE.PointLight(0x5577ff, 0.45, 8);
+  coreLight.position.set(0, -0.4, -7.5);
+
+  return { points, starCore, coreLight };
 }
 
 // ─── Enemy Object Factory ──────────────────────────────────────────────────
@@ -79,17 +108,16 @@ export interface EnemyObject {
 }
 
 const _enemyGeos = [
-  () => new THREE.IcosahedronGeometry(0.26, 1),
-  () => new THREE.TorusGeometry(0.22, 0.09, 10, 14),
-  () => new THREE.BoxGeometry(0.35, 0.35, 0.35),
-  () => new THREE.OctahedronGeometry(0.28, 1),
+  () => new THREE.IcosahedronGeometry(0.24, 1),
+  () => new THREE.TorusGeometry(0.20, 0.08, 8, 12),
+  () => new THREE.BoxGeometry(0.30, 0.30, 0.30),
+  () => new THREE.OctahedronGeometry(0.26, 1),
 ];
 
 export function createEnemy(spawnSide: number): EnemyObject {
   const geo = _enemyGeos[Math.floor(Math.random() * _enemyGeos.length)]();
   const mat = deepMaterial(0x111111);
   const mesh = new THREE.Mesh(geo, mat);
-  mesh.castShadow = true;
 
   const spread = 3.5;
   switch (spawnSide % 4) {
@@ -121,10 +149,10 @@ export interface Orbiter {
 }
 
 const _orbiterGeos = [
-  () => new THREE.SphereGeometry(0.08, 10, 10),
-  () => new THREE.OctahedronGeometry(0.10, 1),
-  () => new THREE.BoxGeometry(0.12, 0.12, 0.12),
-  () => new THREE.TetrahedronGeometry(0.11, 0),
+  () => new THREE.SphereGeometry(0.07, 8, 8),
+  () => new THREE.OctahedronGeometry(0.09, 0),
+  () => new THREE.BoxGeometry(0.10, 0.10, 0.10),
+  () => new THREE.TetrahedronGeometry(0.10, 0),
 ];
 
 export function createOrbiter(index: number, total: number): Orbiter {
@@ -136,13 +164,12 @@ export function createOrbiter(index: number, total: number): Orbiter {
     metalness: 0.4,
   });
   const mesh = new THREE.Mesh(geo, mat);
-  mesh.castShadow = true;
   return {
     mesh,
     angle: (index / total) * Math.PI * 2,
-    radius: 1.5 + Math.random() * 0.7,
-    speed: 0.0025 + Math.random() * 0.003,
-    tiltX: (Math.random() - 0.5) * 0.6,
+    radius: 1.4 + Math.random() * 0.8,
+    speed: 0.0022 + Math.random() * 0.003,
+    tiltX: (Math.random() - 0.5) * 0.7,
     tiltZ: (Math.random() - 0.5) * 0.4,
   };
 }

@@ -1,28 +1,38 @@
 import * as THREE from "three";
 import gsap from "gsap";
+import { ConvexGeometry } from "three/examples/jsm/geometries/ConvexGeometry.js";
 import { scene, camera, lights } from "./scene";
 import { gravitySources, setSpacetimeOpacity } from "./spacetime";
-import { createEnemy, EnemyObject, createOrbiter, Orbiter, deepMaterial, metalMaterial } from "./objects";
+import { createEnemy, EnemyObject, createOrbiter, Orbiter, deepMaterial, createGalaxy, Galaxy } from "./objects";
 import { loadFont, buildTextEnd } from "./text3d";
 import { sampleMeshToPoints, animateParticlesExplode, flashLine, ripple } from "./particles";
 import { runDestructionSequence } from "./destroy";
-import { state, bus, Events } from "../store/state";
+import { state, bus, Events, type Phase } from "../store/state";
 
 // ─── Seeded random ──────────────────────────────────────────────────────────
 function rng() { return Math.random(); }
 
 // ─── Global scene objects ────────────────────────────────────────────────────
-let ambientObj: THREE.Mesh | null = null;        // background ambient shape
+let ambientObj: THREE.Mesh | null = null;        // (unused — kept for compat)
+let galaxy: Galaxy | null = null;                // alive-phase cosmic background
 let mainDotMesh: THREE.Mesh | null = null;       // revival main dot
 let mainObjMesh: THREE.Mesh | null = null;       // built procedural object
 let torusKnot: THREE.Mesh | null = null;         // dominant object
 const enemies: EnemyObject[] = [];
 const orbiters: Orbiter[] = [];
-const geomVerts: THREE.Vector3[] = [new THREE.Vector3(0, 0, 0)];
+// Pre-seed geomVerts with slightly offset non-coplanar points so ConvexGeometry always has 3D spread
+const geomVerts: THREE.Vector3[] = [
+  new THREE.Vector3(0, 0, 0),
+  new THREE.Vector3(0.1, 0, 0.35),
+  new THREE.Vector3(-0.1, 0.1, -0.35),
+  new THREE.Vector3(0, 0.2, 0.1),
+];
 
 // Revival state
 type Dot = {
-  mesh: THREE.Mesh; x: number; y: number; vx: number; vy: number;
+  mesh: THREE.Mesh;
+  x: number; y: number; z: number;
+  vx: number; vy: number; vz: number;
   isMain: boolean; resistant: boolean; absorbed: boolean; dead: boolean;
   size: number; id: number;
 };
@@ -168,20 +178,20 @@ function beginAlive() {
 }
 
 function spawnAmbientObject() {
-  // A large, very dark icosahedron in the background — barely visible, slowly breathing
-  const geo = new THREE.IcosahedronGeometry(2.2, 2);
-  const mat = new THREE.MeshPhysicalMaterial({
-    color: 0x050505,
-    roughness: 0.95,
-    metalness: 0.1,
-    transparent: true,
-    opacity: 0.7,
-    wireframe: false,
-  });
-  ambientObj = new THREE.Mesh(geo, mat);
-  ambientObj.position.set(1.5, 0, -5);
-  ambientObj.rotation.set(0.3, 0.1, 0);
-  scene.add(ambientObj);
+  // Galaxy particle system — the universe before entropy
+  galaxy = createGalaxy();
+  scene.add(galaxy.points);
+  scene.add(galaxy.starCore);
+  scene.add(galaxy.coreLight);
+
+  // Fade in gracefully
+  const gMat = galaxy.points.material as THREE.PointsMaterial;
+  const cMat = galaxy.starCore.material as THREE.MeshPhysicalMaterial;
+  gMat.opacity = 0;
+  cMat.opacity = 0;
+  gsap.to(gMat, { opacity: 0.62, duration: 3, ease: "power2.out" });
+  gsap.to(cMat, { opacity: 0.75, duration: 3, delay: 0.5, ease: "power2.out" });
+  gsap.to(galaxy.coreLight, { intensity: 0.45, duration: 3, ease: "power2.out" });
 }
 
 // ─── Scroll Handler ──────────────────────────────────────────────────────────
@@ -196,10 +206,9 @@ export function handleScroll(scrollTop: number, maxScroll: number) {
     // Camera drift based on scroll
     camera.position.y = 1.2 - state.scrollProgress * 0.4;
 
-    // Ambient object reacts to scroll
-    if (ambientObj) {
-      (ambientObj.material as THREE.MeshPhysicalMaterial).opacity =
-        0.7 + state.scrollProgress * 0.25;
+    // Galaxy tilts slightly as user scrolls
+    if (galaxy) {
+      galaxy.points.rotation.z = state.scrollProgress * 0.08;
     }
 
     if (state.scrollProgress > 0.75 && lifeMsgIndex === LIFE_MESSAGES.length) {
@@ -238,12 +247,14 @@ function startWarning() {
   const bar = document.getElementById("scroll-progress");
   if (bar) bar.style.background = "rgba(139,0,0,0.5)";
 
-  // Ambient object starts glitching
-  if (ambientObj) {
-    gsap.to((ambientObj.material as THREE.MeshPhysicalMaterial).color, {
-      r: 0.1, g: 0, b: 0, duration: 2, ease: "power1.out",
+  // Galaxy starts to distort / redden as anomaly builds
+  if (galaxy) {
+    gsap.to(galaxy.coreLight, { intensity: 1.2, duration: 2.5, ease: "power1.out" });
+    gsap.to(galaxy.starCore.material as THREE.MeshPhysicalMaterial, {
+      emissiveIntensity: 2.8, duration: 2, ease: "power1.out",
     });
-    gsap.to(ambientObj.rotation, { x: 1.2, y: 0.6, duration: 3, ease: "power1.inOut" });
+    const gMat = galaxy.points.material as THREE.PointsMaterial;
+    gsap.to(gMat, { opacity: 0.9, duration: 2, ease: "power1.out" });
   }
 }
 
@@ -292,7 +303,14 @@ function beginDestruction() {
   // Fabric becomes more visible as website dies
   setSpacetimeOpacity(0.4);
 
-  // Background object starts breaking
+  // Galaxy starts collapsing as the entity dies
+  if (galaxy) {
+    const gMat = galaxy.points.material as THREE.PointsMaterial;
+    gsap.to(gMat, { size: 0.012, duration: 6, ease: "power1.in" });
+    gsap.to(galaxy.points.rotation, { y: galaxy.points.rotation.y + Math.PI * 0.5, duration: 8, ease: "none" });
+  }
+
+  // (legacy ambientObj compat - now null)
   if (ambientObj) {
     gsap.to((ambientObj.material as THREE.MeshPhysicalMaterial), {
       wireframe: true, opacity: 0.4, duration: 1, ease: "power1.out",
@@ -326,13 +344,15 @@ function beginDestruction() {
 function afterDestruction() {
   state.phase = "substrate";
 
-  // Remove ambient object
-  if (ambientObj) {
-    const pts = sampleMeshToPoints(ambientObj, 120, 0x333333);
-    scene.add(pts);
-    scene.remove(ambientObj);
-    animateParticlesExplode(pts, 1.2, () => scene.remove(pts));
-    ambientObj = null;
+  // Dissolve galaxy into particles
+  if (galaxy) {
+    const gMat = galaxy.points.material as THREE.PointsMaterial;
+    const cMat = galaxy.starCore.material as THREE.MeshPhysicalMaterial;
+    gsap.to(gMat, { opacity: 0, duration: 1.5, ease: "power2.in", onComplete: () => {
+      if (galaxy) { scene.remove(galaxy.points); scene.remove(galaxy.starCore); scene.remove(galaxy.coreLight); galaxy = null; }
+    }});
+    gsap.to(cMat, { opacity: 0, emissiveIntensity: 0, duration: 1, ease: "power2.in" });
+    gsap.to(galaxy.coreLight, { intensity: 0, duration: 1, ease: "power2.in" });
   }
 
   // Fabric lights up — this is the substrate
@@ -377,7 +397,7 @@ function beginRevival() {
 
   // Setup main dot
   const md: Dot = {
-    mesh: mainDotMesh, x: 0, y: 0, vx: 0, vy: 0,
+    mesh: mainDotMesh, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0,
     isMain: true, resistant: false, absorbed: false, dead: false,
     size: 0.07, id: dotIdCounter++,
   };
@@ -403,18 +423,22 @@ function beginRevival() {
 }
 
 function spawnRevivalDot() {
-  const angle = rng() * Math.PI * 2;
+  // Spawn on a sphere surface for genuine 3D distribution
+  const theta = rng() * Math.PI * 2;
+  const phi = Math.acos(2 * rng() - 1);
   const radius = 0.7 + rng() * 1.8;
-  const x = Math.cos(angle) * radius, y = Math.sin(angle) * radius;
+  const x = Math.cos(theta) * Math.sin(phi) * radius;
+  const y = Math.sin(theta) * Math.sin(phi) * radius;
+  const z = Math.cos(phi) * radius;
   const size = 0.03 + rng() * 0.04;
   const br = 0.7 + rng() * 0.3;
   const resistant = rng() < 0.22;
   const geo = new THREE.SphereGeometry(size, 7, 7);
   const mat = new THREE.MeshPhysicalMaterial({ color: new THREE.Color(br, br, br), roughness: 0.35, metalness: 0.5 });
   const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.set(x, y, 0);
+  mesh.position.set(x, y, z);
   scene.add(mesh);
-  dots.push({ mesh, x, y, vx: 0, vy: 0, isMain: false, resistant, absorbed: false, dead: false, size, id: dotIdCounter++ });
+  dots.push({ mesh, x, y, z, vx: 0, vy: 0, vz: 0, isMain: false, resistant, absorbed: false, dead: false, size, id: dotIdCounter++ });
 }
 
 function runRevivalLoop() {
@@ -422,55 +446,64 @@ function runRevivalLoop() {
   if (!revivalActive || !mainDot) return;
   const md = mainDot;
 
-  // Find nearest target
+  // 3D distance helper
+  const dist3 = (a: Dot, b: Dot) =>
+    Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2 + (a.z - b.z) ** 2) || 0.001;
+
+  // Find nearest target in 3D
   let nearest: Dot | null = null, nearestDist = Infinity;
   dots.forEach((d) => {
     if (d.isMain || d.absorbed || d.dead) return;
-    const dist = Math.hypot(md.x - d.x, md.y - d.y);
+    const dist = dist3(md, d);
     if (d.resistant && dist < 2) {
-      const ax = (d.x - md.x) / dist, ay = (d.y - md.y) / dist;
-      d.vx += ax * 0.014; d.vy += ay * 0.014;
+      const ax = (d.x - md.x) / dist;
+      const ay = (d.y - md.y) / dist;
+      const az = (d.z - md.z) / dist;
+      d.vx += ax * 0.014; d.vy += ay * 0.014; d.vz += az * 0.014;
     }
     if (dist < nearestDist) { nearestDist = dist; nearest = d; }
   });
 
   if (nearest) {
     const nd = nearest as Dot;
-    const dist = Math.hypot(md.x - nd.x, md.y - nd.y) || 0.001;
-    const dx = (nd.x - md.x) / dist, dy = (nd.y - md.y) / dist;
-    // Curved path
-    md.vx += dx * 0.01 + (-dy * 0.004);
-    md.vy += dy * 0.01 + (dx * 0.004);
+    const dist = dist3(md, nd);
+    const dx = (nd.x - md.x) / dist;
+    const dy = (nd.y - md.y) / dist;
+    const dz = (nd.z - md.z) / dist;
+    // Curved path (slight tangential swirl)
+    md.vx += dx * 0.01 + (-dy * 0.003);
+    md.vy += dy * 0.01 + (dz * 0.003);
+    md.vz += dz * 0.01 + (dx * 0.003);
   }
 
-  md.vx *= 0.89; md.vy *= 0.89;
-  md.x += md.vx; md.y += md.vy;
-  md.mesh.position.set(md.x, md.y, 0);
+  md.vx *= 0.89; md.vy *= 0.89; md.vz *= 0.89;
+  md.x += md.vx; md.y += md.vy; md.z += md.vz;
+  md.mesh.position.set(md.x, md.y, md.z);
 
   if (mainObjGravityIdx >= 0) {
     gravitySources[mainObjGravityIdx].x = md.x;
-    gravitySources[mainObjGravityIdx].z = md.y;
+    gravitySources[mainObjGravityIdx].z = md.z;
   }
   state.gravityTarget = { x: window.innerWidth / 2 + md.x * 90, y: window.innerHeight / 2 - md.y * 90 };
 
   // Move satellite dots
   dots.forEach((d) => {
     if (d.isMain || d.absorbed || d.dead) return;
-    d.vx *= 0.91; d.vy *= 0.91;
-    d.x += d.vx; d.y += d.vy;
-    d.mesh.position.set(d.x, d.y, 0);
+    d.vx *= 0.91; d.vy *= 0.91; d.vz *= 0.91;
+    d.x += d.vx; d.y += d.vy; d.z += d.vz;
+    d.mesh.position.set(d.x, d.y, d.z);
 
     // Resistant escape
-    if (d.resistant && Math.hypot(d.x, d.y) > 3.2) {
+    if (d.resistant && Math.sqrt(d.x**2 + d.y**2 + d.z**2) > 3.2) {
       d.dead = true;
       const mat = d.mesh.material as THREE.MeshPhysicalMaterial;
       mat.transparent = true;
       gsap.to(mat, { opacity: 0, duration: 0.8, onComplete: () => { scene.remove(d.mesh); } });
-      ripple(new THREE.Vector3(d.x, d.y, 0));
+      ripple(new THREE.Vector3(d.x, d.y, d.z));
       return;
     }
 
-    const dist = Math.hypot(md.x - d.x, md.y - d.y);
+    const dist = dist3(md, d);
     if (dist < md.size + d.size + 0.04) absorbDot(d);
   });
 }
@@ -480,14 +513,14 @@ function absorbDot(d: Dot) {
   d.absorbed = true;
   absorptionCount++;
 
-  flashLine(new THREE.Vector3(mainDot.x, mainDot.y, 0), new THREE.Vector3(d.x, d.y, 0));
+  flashLine(new THREE.Vector3(mainDot.x, mainDot.y, mainDot.z), new THREE.Vector3(d.x, d.y, d.z));
   scene.remove(d.mesh);
 
   mainDot.size += 0.006;
   const ns = mainDot.size / 0.07;
   gsap.to(mainDot.mesh.scale, { x: ns, y: ns, z: ns, duration: 0.2 });
 
-  growRevivalGeom(d.x, d.y);
+  growRevivalGeom(d.x, d.y, d.z);
 
   if (absorptionCount === 10) {
     showIsland("it learns.", 145);
@@ -501,37 +534,34 @@ function absorbDot(d: Dot) {
   }
 }
 
-function growRevivalGeom(x: number, y: number) {
-  const vx = x + (rng() - 0.5) * 0.3, vy = y + (rng() - 0.5) * 0.3, vz = (rng() - 0.5) * 0.5;
+function growRevivalGeom(x: number, y: number, z: number) {
+  // Add vertex with noise in all 3 axes — ensures truly 3D convex hull
+  const vx = x + (rng() - 0.5) * 0.35;
+  const vy = y + (rng() - 0.5) * 0.35;
+  const vz = z + (rng() - 0.5) * 0.6;
   geomVerts.push(new THREE.Vector3(vx, vy, vz));
   if (mainObjMesh) scene.remove(mainObjMesh);
-  if (geomVerts.length < 4) return;
+  if (geomVerts.length < 5) return;
 
-  const positions: number[] = [];
-  for (let i = 1; i < geomVerts.length - 1; i++) {
-    const p0 = geomVerts[0], p1 = geomVerts[i], p2 = geomVerts[i + 1] ?? geomVerts[1];
-    positions.push(p0.x, p0.y, p0.z, p1.x, p1.y, p1.z, p2.x, p2.y, p2.z);
+  try {
+    const convexGeo = new ConvexGeometry(geomVerts);
+    mainObjMesh = new THREE.Mesh(convexGeo, new THREE.MeshPhysicalMaterial({
+      color: 0xe0e0e0,
+      roughness: 0.28,
+      metalness: 0.78,
+      clearcoat: 0.5,
+      clearcoatRoughness: 0.2,
+      wireframe: absorptionCount % 5 !== 0,
+      transparent: true,
+      opacity: 0.88,
+      side: THREE.DoubleSide,
+      emissive: new THREE.Color(0x060614),
+      emissiveIntensity: 0.2,
+    }));
+    scene.add(mainObjMesh);
+  } catch (_) {
+    // Fallback: not enough non-coplanar points yet, skip this frame
   }
-
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-  geo.computeVertexNormals();
-
-  mainObjMesh = new THREE.Mesh(geo, new THREE.MeshPhysicalMaterial({
-    color: 0xe0e0e0,
-    roughness: 0.28,
-    metalness: 0.78,
-    clearcoat: 0.5,
-    clearcoatRoughness: 0.2,
-    wireframe: absorptionCount % 4 !== 0,
-    transparent: true,
-    opacity: 0.88,
-    side: THREE.DoubleSide,
-    emissive: new THREE.Color(0x060614),
-    emissiveIntensity: 0.2,
-  }));
-  mainObjMesh.castShadow = true;
-  scene.add(mainObjMesh);
 }
 
 // ─── CONFLICT ────────────────────────────────────────────────────────────────
@@ -618,7 +648,10 @@ function runConflictLoop() {
   if (conflictActive && hadHostile && hostile.length === 0) {
     conflictActive = false;
     cancelAnimationFrame(conflictRaf);
-    setTimeout(beginDominant, 1500);
+    // Only transition to dominant from conflict phase — not from dominant waves
+    if (state.phase === "conflict") {
+      setTimeout(beginDominant, 1500);
+    }
   }
 }
 
@@ -791,19 +824,23 @@ function triggerEnd() {
 }
 
 function doWhiteFill() {
-  const sphereGeo = new THREE.SphereGeometry(0.1, 24, 24);
+  const sphereGeo = new THREE.SphereGeometry(0.1, 20, 20);
   const sphereMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
   const sphere = new THREE.Mesh(sphereGeo, sphereMat);
   sphere.position.set(0, 0, 0);
   scene.add(sphere);
 
+  let endFired = false;
   const start = Date.now();
   function tick() {
     const el = (Date.now() - start) / 1000;
     const sc = 1 + el * el * 14;
     sphere.scale.set(sc, sc, sc);
     const r = sc * 0.1;
-    if (r > 8) bus.emit(Events.END_WHITE);
+    if (!endFired && r > 8) {
+      endFired = true;
+      bus.emit(Events.END_WHITE);
+    }
     if (el < 3.5) requestAnimationFrame(tick);
   }
   requestAnimationFrame(tick);
@@ -811,13 +848,13 @@ function doWhiteFill() {
 
 // ─── Per-frame update ────────────────────────────────────────────────────────
 export function updateNarrative(time: number, _delta: number) {
-  // Ambient object slow rotation
-  if (ambientObj) {
-    ambientObj.rotation.y += 0.002;
-    ambientObj.rotation.x += 0.0008;
-    // Breathe
-    const pulse = 1 + Math.sin(time * 0.4) * 0.02;
-    ambientObj.scale.set(pulse, pulse, pulse);
+  // Galaxy slow rotation + star core pulse
+  if (galaxy) {
+    galaxy.points.rotation.y += 0.00028;
+    const corePulse = 1 + Math.sin(time * 1.1) * 0.18;
+    galaxy.starCore.scale.set(corePulse, corePulse, corePulse);
+    const lPulse = 0.35 + Math.sin(time * 1.1) * 0.12;
+    galaxy.coreLight.intensity = lPulse;
   }
 
   // Torus knot rotation during dominant/end
@@ -872,11 +909,21 @@ export function startLoadingAnimation() {
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+const _navPhases: Phase[] = ["alive", "warning", "replay", "dying"];
+
 function showIsland(msg: string, widthPx?: number) {
-  bus.emit(Events.ISLAND_SHOW, msg, widthPx);
+  if ((_navPhases as string[]).includes(state.phase)) {
+    bus.emit(Events.NAV_MSG_SHOW, msg);
+  } else {
+    bus.emit(Events.ISLAND_SHOW, msg, widthPx);
+  }
 }
 function hideIsland() {
-  bus.emit(Events.ISLAND_HIDE);
+  if ((_navPhases as string[]).includes(state.phase)) {
+    bus.emit(Events.NAV_MSG_HIDE);
+  } else {
+    bus.emit(Events.ISLAND_HIDE);
+  }
 }
 
 function showPhaseOverlay(tag: string, text: string) {

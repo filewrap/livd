@@ -1,10 +1,66 @@
-import { useEffect } from "react";
-import { state } from "../store/state";
+import { useEffect, useRef, useState } from "react";
+import { state, bus, Events } from "../store/state";
 import { ArrowDown, Zap, Clock, Infinity, Star } from "lucide-react";
+import gsap from "gsap";
+
+// ─── Center Nav Pill — also hosts the Island during alive/dying phases ────────
+function CenterPill() {
+  const linksRef = useRef<HTMLDivElement>(null);
+  const msgRef = useRef<HTMLSpanElement>(null);
+  const [msg, setMsg] = useState("");
+  const shown = useRef(false);
+
+  useEffect(() => {
+    const offShow = bus.on(Events.NAV_MSG_SHOW, (text: string) => {
+      if (shown.current) return;
+      shown.current = true;
+      setMsg(text);
+      const links = linksRef.current;
+      const msgEl = msgRef.current;
+      if (links) gsap.to(links, { opacity: 0, duration: 0.22 });
+      if (msgEl) {
+        msgEl.style.display = "block";
+        gsap.fromTo(msgEl, { opacity: 0 }, { opacity: 1, duration: 0.28 });
+      }
+    });
+
+    const offHide = bus.on(Events.NAV_MSG_HIDE, () => {
+      if (!shown.current) return;
+      shown.current = false;
+      const links = linksRef.current;
+      const msgEl = msgRef.current;
+      if (msgEl) {
+        gsap.to(msgEl, {
+          opacity: 0, duration: 0.22, onComplete: () => {
+            msgEl.style.display = "none";
+            setMsg("");
+          },
+        });
+      }
+      if (links) gsap.to(links, { opacity: 1, duration: 0.32, delay: 0.15 });
+    });
+
+    return () => { offShow(); offHide(); };
+  }, []);
+
+  return (
+    <div className="nav-pill nav-pill-center" id="nav-center-pill">
+      <div className="center-links" ref={linksRef}>
+        <a href="#section-observable">observable</a>
+        <span className="nav-sep">·</span>
+        <a href="#section-time">time</a>
+        <span className="nav-sep">·</span>
+        <a href="#section-process">entropy</a>
+        <span className="nav-sep">·</span>
+        <a href="#section-pattern">pattern</a>
+      </div>
+      <span className="center-msg" ref={msgRef} style={{ display: "none" }}>{msg}</span>
+    </div>
+  );
+}
 
 export function WebsiteContent() {
   useEffect(() => {
-    // Inject session seed into footer
     const el = document.getElementById("footer-seed-val");
     if (el) el.textContent = state.sessionSeed;
   }, []);
@@ -12,18 +68,19 @@ export function WebsiteContent() {
   return (
     <div id="website">
 
-      {/* ── Navigation ────────────────────────────────────────────── */}
+      {/* ── Navigation — 3 glass pills ──────────────────────────── */}
       <nav id="site-nav">
-        <a className="nav-logo" href="#">
-          <span className="dot">·</span>livd
-        </a>
-        <ul className="nav-links">
-          <li><a href="#section-observable">observable</a></li>
-          <li><a href="#section-time">time</a></li>
-          <li><a href="#section-process">entropy</a></li>
-          <li><a href="#section-pattern">pattern</a></li>
-        </ul>
-        <div className="nav-end">·</div>
+        <div className="nav-pill nav-pill-left">
+          <a className="nav-logo" href="#">
+            <span className="dot">·</span>livd
+          </a>
+        </div>
+
+        <CenterPill />
+
+        <div className="nav-pill nav-pill-right">
+          <span className="nav-end-dot">·</span>
+        </div>
       </nav>
 
       {/* ── Hero ──────────────────────────────────────────────────── */}

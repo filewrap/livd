@@ -67,13 +67,15 @@ export const bus = {
 };
 
 export const Events = {
-  PHASE_CHANGE:   "phase:change",
-  ISLAND_SHOW:    "island:show",
-  ISLAND_HIDE:    "island:hide",
-  ISLAND_BORDER:  "island:border",
-  ISLAND_CLICK:   "island:click",
-  CURSOR_RED:     "cursor:red",
-  CURSOR_RESTORE: "cursor:restore",
-  PHASE_OVERLAY:  "phase:overlay",
-  END_WHITE:      "end:white",
+  PHASE_CHANGE:    "phase:change",
+  ISLAND_SHOW:     "island:show",
+  ISLAND_HIDE:     "island:hide",
+  ISLAND_BORDER:   "island:border",
+  ISLAND_CLICK:    "island:click",
+  NAV_MSG_SHOW:    "nav:msg:show",
+  NAV_MSG_HIDE:    "nav:msg:hide",
+  CURSOR_RED:      "cursor:red",
+  CURSOR_RESTORE:  "cursor:restore",
+  PHASE_OVERLAY:   "phase:overlay",
+  END_WHITE:       "end:white",
 } as const;

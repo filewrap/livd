@@ -5,7 +5,6 @@ export function splitToChars(el: Element): HTMLSpanElement[] {
   const children = Array.from(el.childNodes);
   const spans: HTMLSpanElement[] = [];
 
-  // Collect and replace text nodes with char spans
   children.forEach((node) => {
     if (node.nodeType === Node.TEXT_NODE) {
       const text = node.textContent || "";
@@ -19,7 +18,6 @@ export function splitToChars(el: Element): HTMLSpanElement[] {
       });
       el.replaceChild(frag, node);
     } else if (node.nodeType === Node.ELEMENT_NODE) {
-      // Recurse into child elements
       const childSpans = splitToChars(node as Element);
       childSpans.forEach((s) => spans.push(s));
     }
@@ -33,11 +31,10 @@ function glitchEl(el: HTMLElement, duration = 0.8): Promise<void> {
   return new Promise((resolve) => {
     const start = Date.now();
     function tick() {
-      const el2 = el as HTMLElement;
-      if (!el2.isConnected) { resolve(); return; }
-      el2.style.transform = `translate(${(Math.random() - 0.5) * 8}px, ${(Math.random() - 0.5) * 4}px)`;
+      if (!el.isConnected) { resolve(); return; }
+      el.style.transform = `translate(${(Math.random() - 0.5) * 10}px, ${(Math.random() - 0.5) * 5}px)`;
       if (Date.now() - start < duration * 1000) requestAnimationFrame(tick);
-      else { el2.style.transform = ""; resolve(); }
+      else { el.style.transform = ""; resolve(); }
     }
     requestAnimationFrame(tick);
   });
@@ -48,26 +45,25 @@ export async function destroyNav(): Promise<void> {
   const nav = document.getElementById("site-nav");
   if (!nav) return;
 
-  // Glitch border first
-  (nav as HTMLElement).style.borderBottomColor = "rgba(139,0,0,0.4)";
+  // Red tinge the nav border
+  (nav as HTMLElement).style.borderBottomColor = "rgba(139,0,0,0.5)";
 
-  // Split nav links
-  const links = nav.querySelectorAll(".nav-links a, .nav-logo");
+  const links = nav.querySelectorAll(".nav-links a, .nav-logo, .center-links a");
   const allChars: HTMLSpanElement[] = [];
   links.forEach((link) => {
     const chars = splitToChars(link);
     allChars.push(...chars);
   });
 
-  // Fly upward with stagger
+  // Fly upward — slower, more dramatic
   await new Promise<void>((resolve) => {
     gsap.to(allChars, {
-      y: () => -(60 + Math.random() * 80),
-      x: () => (Math.random() - 0.5) * 60,
-      rotation: () => (Math.random() - 0.5) * 40,
+      y: () => -(80 + Math.random() * 120),
+      x: () => (Math.random() - 0.5) * 80,
+      rotation: () => (Math.random() - 0.5) * 50,
       opacity: 0,
-      duration: 0.9,
-      stagger: 0.015,
+      duration: 1.6,
+      stagger: 0.028,
       ease: "power3.in",
       onComplete: resolve,
     });
@@ -80,7 +76,7 @@ export async function destroyNav(): Promise<void> {
       opacity: 0,
       paddingTop: 0,
       paddingBottom: 0,
-      duration: 0.4,
+      duration: 0.55,
       ease: "power2.in",
       onComplete: resolve,
     });
@@ -95,34 +91,34 @@ export async function destroyHero(): Promise<void> {
   const heroContent = document.getElementById("hero-content");
   if (!hero || !heroContent) return;
 
-  // Glitch the container briefly
-  await glitchEl(heroContent as HTMLElement, 0.3);
+  // Longer glitch
+  await glitchEl(heroContent as HTMLElement, 0.55);
 
-  // Split title into chars, fall with gravity
+  // Split title into chars, fall with gravity — give time to read the tagline
   const titleEl = document.getElementById("hero-title");
   if (titleEl) {
     const titleChars = splitToChars(titleEl);
     await new Promise<void>((resolve) => {
       gsap.to(titleChars, {
-        y: () => 80 + Math.random() * 160,
-        x: () => (Math.random() - 0.5) * 40,
-        rotation: () => (Math.random() - 0.5) * 25,
+        y: () => 100 + Math.random() * 200,
+        x: () => (Math.random() - 0.5) * 60,
+        rotation: () => (Math.random() - 0.5) * 30,
         opacity: 0,
-        duration: 1.4,
-        stagger: { each: 0.025, from: "random" },
+        duration: 2.2,
+        stagger: { each: 0.045, from: "random" },
         ease: "power2.in",
         onComplete: resolve,
       });
     });
   }
 
-  // Sub text dissolves
+  // Sub text dissolves — slow enough to half-read
   const subEl = document.getElementById("hero-sub");
   const cueEl = document.getElementById("hero-scroll-cue");
   await new Promise<void>((resolve) => {
-    if (subEl) gsap.to(subEl, { opacity: 0, y: 30, filter: "blur(8px)", duration: 0.9, ease: "power2.out" });
-    if (cueEl) gsap.to(cueEl, { opacity: 0, duration: 0.5 });
-    setTimeout(resolve, 1000);
+    if (subEl) gsap.to(subEl, { opacity: 0, y: 40, filter: "blur(12px)", duration: 1.4, ease: "power2.out" });
+    if (cueEl) gsap.to(cueEl, { opacity: 0, duration: 0.6 });
+    setTimeout(resolve, 1600);
   });
 
   // Collapse hero
@@ -132,7 +128,7 @@ export async function destroyHero(): Promise<void> {
       opacity: 0,
       paddingTop: 0,
       paddingBottom: 0,
-      duration: 0.6,
+      duration: 0.8,
       ease: "power2.in",
       onComplete: resolve,
     });
@@ -147,36 +143,43 @@ export async function destroySection(el: Element, index: number): Promise<void> 
   const bodies = el.querySelectorAll(".section-body p, .quote-text, .section-num");
   const tags = el.querySelectorAll(".section-tag, .quote-source");
 
-  // Glitch container
-  await glitchEl(el as HTMLElement, 0.2);
+  // Glitch the container — long enough to notice something is wrong
+  await glitchEl(el as HTMLElement, 0.42);
 
-  // Break headings — characters scatter
+  // Break headings — characters scatter in opposite directions per section
   headings.forEach((h) => {
     const chars = splitToChars(h);
     gsap.to(chars, {
-      y: () => index % 2 === 0 ? -(40 + Math.random() * 80) : (40 + Math.random() * 80),
-      x: () => (Math.random() - 0.5) * 80,
-      rotation: () => (Math.random() - 0.5) * 30,
+      y: () => index % 2 === 0 ? -(50 + Math.random() * 110) : (50 + Math.random() * 110),
+      x: () => (Math.random() - 0.5) * 120,
+      rotation: () => (Math.random() - 0.5) * 45,
       opacity: 0,
-      duration: 1.1,
-      stagger: { each: 0.02, from: "end" },
+      duration: 1.9,
+      stagger: { each: 0.038, from: "end" },
       ease: "power2.in",
     });
   });
 
-  await new Promise<void>((resolve) => setTimeout(resolve, 400));
+  // Long pause — let the reader catch the heading disappearing
+  await new Promise<void>((resolve) => setTimeout(resolve, 650));
 
-  // Bodies fade and blur
+  // Bodies fade — slow enough to half-read the paragraph
   const bodyAnim = Promise.all(
     Array.from(bodies).map((b) =>
       new Promise<void>((res) => {
-        gsap.to(b, { opacity: 0, y: 20, filter: "blur(6px)", duration: 0.8, ease: "power1.out", onComplete: res });
+        gsap.to(b, {
+          opacity: 0,
+          y: 28,
+          filter: "blur(8px)",
+          duration: 1.5,
+          ease: "power1.out",
+          onComplete: res,
+        });
       }),
     ),
   );
 
-  // Tags fade
-  gsap.to(Array.from(tags), { opacity: 0, duration: 0.4, stagger: 0.05 });
+  gsap.to(Array.from(tags), { opacity: 0, duration: 0.5, stagger: 0.06 });
 
   await bodyAnim;
 
@@ -188,7 +191,7 @@ export async function destroySection(el: Element, index: number): Promise<void> 
       marginBottom: 0,
       paddingTop: 0,
       paddingBottom: 0,
-      duration: 0.55,
+      duration: 0.65,
       ease: "power2.in",
       onComplete: resolve,
     });
@@ -201,20 +204,19 @@ export async function destroyFooter(): Promise<void> {
   const footer = document.getElementById("site-footer");
   if (!footer) return;
 
-  // Everything dissolves together, slowly
   const allText = footer.querySelectorAll(".footer-brand, .footer-tagline, .footer-credit, .footer-seed, .footer-end");
   await new Promise<void>((resolve) => {
     gsap.to(Array.from(allText), {
       opacity: 0,
-      y: 30,
-      stagger: 0.1,
-      duration: 1.2,
+      y: 40,
+      stagger: 0.14,
+      duration: 1.6,
       ease: "power1.out",
     });
     gsap.to(footer, {
       opacity: 0,
-      duration: 2,
-      delay: 0.5,
+      duration: 2.8,
+      delay: 0.6,
       ease: "power1.in",
       onComplete: resolve,
     });
@@ -232,12 +234,12 @@ export async function runDestructionSequence(
   // Nav dies first
   onSectionDead("nav");
   await destroyNav();
-  await delay(400);
+  await delay(1000);
 
   // Hero
   onSectionDead("hero");
   await destroyHero();
-  await delay(400);
+  await delay(1200);
 
   // Sections in order
   const sections = [
@@ -253,13 +255,13 @@ export async function runDestructionSequence(
     if (!el) continue;
     onSectionDead(name);
     await destroySection(el, i);
-    await delay(320);
+    await delay(900);
   }
 
   // Footer (slowest — the last breath)
   onSectionDead("footer");
   await destroyFooter();
-  await delay(600);
+  await delay(700);
 }
 
 function delay(ms: number): Promise<void> {

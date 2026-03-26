@@ -83,53 +83,110 @@ html, body {
   position: relative;
 }
 
-/* ─── Navigation ──────────────────────────────────────────────────── */
+/* ─── Navigation — 3 glass pills ─────────────────────────────────── */
 #site-nav {
   position: sticky;
   top: 0;
   z-index: 20;
-  height: 64px;
+  height: 60px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 var(--gutter);
-  background: rgba(0,0,0,0.75);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--faint);
+  padding: 0 20px;
+  background: transparent;
+  border-bottom: none;
+  gap: 10px;
+}
+
+/* Shared glass pill base */
+.nav-pill {
+  height: 38px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.09);
+  background: rgba(8,8,10,0.65);
+  backdrop-filter: blur(18px) saturate(1.4);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  overflow: hidden;
+  transition: border-color 0.4s ease;
+}
+
+/* Left pill: .livd brand */
+.nav-pill-left {
+  padding: 0 18px;
+  flex-shrink: 0;
 }
 
 .nav-logo {
   font-family: var(--font-mono);
-  font-size: 14px;
+  font-size: 13px;
   letter-spacing: 0.06em;
   color: var(--white);
   text-decoration: none;
+  white-space: nowrap;
 }
-.nav-logo .dot { color: rgba(255,255,255,0.35); }
+.nav-logo .dot { color: rgba(255,255,255,0.3); }
 
-.nav-links {
+/* Center pill: links + Island messages */
+.nav-pill-center {
+  flex: 1;
+  max-width: 480px;
+  min-width: 220px;
+  padding: 0 22px;
+  position: relative;
+}
+
+.center-links {
   display: flex;
   align-items: center;
-  gap: 36px;
-  list-style: none;
+  gap: 14px;
 }
-.nav-links a {
+
+.center-links a {
   font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0.1em;
-  color: rgba(255,255,255,0.35);
+  color: rgba(255,255,255,0.32);
   text-decoration: none;
   cursor: none;
-  transition: color 0.25s;
+  transition: color 0.22s;
 }
-.nav-links a:hover { color: rgba(255,255,255,0.75); }
+.center-links a:hover { color: rgba(255,255,255,0.72); }
 
-.nav-end {
+.nav-sep {
   font-family: var(--font-mono);
-  font-size: 18px;
-  color: rgba(255,255,255,0.2);
-  letter-spacing: 0;
+  font-size: 12px;
+  color: rgba(255,255,255,0.12);
+  pointer-events: none;
+}
+
+/* Island message inside center pill */
+.center-msg {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: rgba(255,255,255,0.68);
+  white-space: nowrap;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+/* Right pill: lone dot */
+.nav-pill-right {
+  padding: 0 16px;
+  flex-shrink: 0;
+}
+
+.nav-end-dot {
+  font-family: var(--font-mono);
+  font-size: 20px;
+  color: rgba(255,255,255,0.18);
+  line-height: 1;
 }
 
 /* ─── Hero ────────────────────────────────────────────────────────── */
