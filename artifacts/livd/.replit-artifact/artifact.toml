@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = ".livd"
+version = "1.0.0"
+id = "artifacts/livd"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 23114
+
+[services.development]
+run = "pnpm --filter @workspace/livd run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/livd", "run", "build" ]
+publicDir = "artifacts/livd/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23114"
+BASE_PATH = "/"
