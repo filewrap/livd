@@ -1,86 +1,76 @@
 import { useEffect, useRef } from "react";
-import "./livd.css";
+import { startEngine } from "./engine/index";
+import { bus, Events } from "./store/state";
+import { Island } from "./ui/Island";
+import { Cursor } from "./ui/Cursor";
+import { Nav } from "./ui/Nav";
+import { Hint } from "./ui/Hint";
+import { Sections } from "./ui/Sections";
+import { HeroText } from "./ui/HeroText";
+import { SeedDisplay } from "./ui/SeedDisplay";
+import { LoadingScreen } from "./ui/LoadingScreen";
+import "./index.css";
 
 export default function App() {
-  const mountedRef = useRef(false);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const endWhiteRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (mountedRef.current) return;
-    mountedRef.current = true;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
 
-    async function boot() {
-      // Wait for THREE and GSAP to load from CDN
-      await Promise.all([
-        (window as any).THREE_LOAD_PROMISE,
-        (window as any).GSAP_LOAD_PROMISE,
-      ]);
+    startEngine(canvas).catch((err) => {
+      console.warn("[livd] engine failed:", err);
+      // Show a graceful fallback message in the loading label
+      const label = document.getElementById("loading-label");
+      if (label) label.textContent = "requires webgl — please use a modern browser";
+    });
 
-      if (typeof (window as any).THREE === "undefined") {
-        // Fallback: load synchronously if promises didn't work
-        await new Promise<void>((res) => {
-          const s = document.createElement("script");
-          s.src = "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js";
-          s.onload = () => res();
-          s.onerror = () => res();
-          document.head.appendChild(s);
-        });
+    const off = bus.on(Events.END_WHITE, () => {
+      const el = endWhiteRef.current;
+      if (!el) return;
+      el.style.opacity = "1";
+      el.style.pointerEvents = "all";
+      // The cursor holds black for 1 extra second — the last dark thing
+      const cursor = document.getElementById("cursor");
+      if (cursor) {
+        cursor.style.backgroundColor = "#000";
+        cursor.style.zIndex = "99999";
+        setTimeout(() => { cursor.style.opacity = "0"; }, 1200);
       }
+    });
 
-      if (typeof (window as any).gsap === "undefined") {
-        await new Promise<void>((res) => {
-          const s = document.createElement("script");
-          s.src = "https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js";
-          s.onload = () => res();
-          s.onerror = () => res();
-          document.head.appendChild(s);
-        });
-      }
-
-      const { initExperience } = await import("./experience");
-      initExperience();
-    }
-
-    boot();
+    return () => off();
   }, []);
 
   return (
-    <div id="livd-root">
-      {/* Loading Screen */}
-      <div id="loading-screen">
-        <canvas id="loading-canvas"></canvas>
+    <>
+      {/* ── Three.js render canvas ──────────────────────── */}
+      <canvas id="three-canvas" ref={canvasRef} />
+
+      {/* ── Loading screen (sits on top until ready) ────── */}
+      <LoadingScreen />
+
+      {/* ── Scroll layer — 600vh tall, drives the narrative */}
+      <div id="scroll-layer">
+        <div id="scroll-content" />
       </div>
 
-      {/* Main Three.js Canvas */}
-      <canvas id="main-canvas"></canvas>
-
-      {/* Dynamic Island */}
-      <div id="dynamic-island">
-        <span id="island-text"></span>
+      {/* ── All React UI (above canvas, pointer-events:none by default) */}
+      <div id="ui-layer">
+        <Island />
+        <Nav />
+        <HeroText />
+        <Sections />
+        <SeedDisplay />
+        <Hint />
       </div>
 
-      {/* Custom Cursor */}
-      <div id="cursor-dot"></div>
+      {/* ── End state white fill ─────────────────────────── */}
+      <div id="end-white" ref={endWhiteRef} />
 
-      {/* Hint Button */}
-      <button id="hint-btn" aria-label="hint">·</button>
-
-      {/* Hint Panel */}
-      <div id="hint-panel">
-        <div id="hint-content">
-          <p className="hint-title">.livd</p>
-          <p className="hint-body">
-            before destruction,<br/>
-            something always exists.<br/>
-            scroll slowly.<br/>
-            some things resist.<br/>
-            some things die.<br/>
-            the object you see<br/>
-            has never existed before.<br/>
-            it will not exist again.
-          </p>
-          <p className="hint-dot">·</p>
-        </div>
-      </div>
-    </div>
+      {/* ── Custom cursor ────────────────────────────────── */}
+      <Cursor />
+    </>
   );
 }

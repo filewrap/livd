@@ -22,7 +22,7 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 artifacts-monorepo/
 ├── artifacts/              # Deployable applications
 │   ├── api-server/         # Express API server
-│   └── livd/               # .livd immersive 3D experience (Three.js + GSAP via CDN)
+│   └── livd/               # .livd immersive 3D philosophical website (Three.js npm, GSAP, lucide-react)
 ├── lib/                    # Shared libraries
 │   ├── api-spec/           # OpenAPI spec + Orval codegen config
 │   ├── api-client-react/   # Generated React Query hooks

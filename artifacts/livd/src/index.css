@@ -1,14 +1,391 @@
-/* Reset all default browser styles for .livd experience */
-*, *::before, *::after {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+/* ─── Reset ───────────────────────────────────────────────────────── */
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --black:      #000000;
+  --white:      #ffffff;
+  --off-white:  #e8e8e8;
+  --muted:      #444444;
+  --dim:        #222222;
+  --red:        #8B0000;
+  --red-deep:   #3d0000;
+  --green:      #00bb44;
+  --border:     rgba(255,255,255,0.08);
+  --font-mono:  'Space Mono', monospace;
+  --font-body:  'Inter', system-ui, sans-serif;
+  --island-w:   120px;
 }
 
-html, body, #root {
+html {
+  scroll-behavior: smooth;
+  background: var(--black);
+  color: var(--white);
+  font-family: var(--font-body);
+}
+
+body {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: #000000;
+  background: var(--black);
   cursor: none;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  width: 100vw;
+  height: 100vh;
+  position: relative;
+  background: var(--black);
+}
+
+/* ─── Canvas Layer ────────────────────────────────────────────────── */
+#three-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+  z-index: 1;
+  display: block;
+}
+
+/* ─── Scroll Layer ────────────────────────────────────────────────── */
+#scroll-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 4;
+  overflow-y: scroll;
+  pointer-events: none;
+}
+#scroll-layer.unlocked { pointer-events: all; }
+
+#scroll-content {
+  height: 600vh;
+  position: relative;
+}
+
+/* ─── UI Layer (above canvas) ─────────────────────────────────────── */
+#ui-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  pointer-events: none;
+}
+
+/* ─── Loading Screen ──────────────────────────────────────────────── */
+#loading-screen {
+  position: fixed;
+  inset: 0;
+  background: var(--black);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 24px;
+}
+
+#loading-canvas {
+  width: 80px;
+  height: 80px;
+  display: block;
+}
+
+#loading-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.15em;
+  color: rgba(255,255,255,0.25);
+  text-transform: lowercase;
+}
+
+/* ─── Navigation ──────────────────────────────────────────────────── */
+#nav {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 32px;
+  pointer-events: all;
+  opacity: 0;
+  transition: opacity 0.6s ease;
+}
+#nav.visible { opacity: 1; }
+
+#nav-logo {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  letter-spacing: 0.1em;
+  color: var(--white);
+  text-decoration: none;
+  opacity: 0.9;
+}
+#nav-logo span { opacity: 0.4; }
+
+#nav-links {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  list-style: none;
+}
+
+#nav-links a {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: rgba(255,255,255,0.4);
+  text-decoration: none;
+  cursor: none;
+  transition: color 0.3s ease;
+}
+#nav-links a:hover { color: rgba(255,255,255,0.8); }
+
+#nav-scroll-hint {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: rgba(255,255,255,0.2);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ─── Dynamic Island ──────────────────────────────────────────────── */
+#island {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  background: #0a0a0a;
+  border: 1px solid #1a1a1a;
+  border-radius: 999px;
+  width: var(--island-w);
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  pointer-events: none;
+  transition: border-color 0.3s ease;
+}
+
+#island-text {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  color: rgba(255,255,255,0.7);
+  white-space: nowrap;
+  opacity: 0;
+}
+
+/* ─── Cursor ──────────────────────────────────────────────────────── */
+#cursor {
+  position: fixed;
+  width: 6px;
+  height: 6px;
+  background: var(--white);
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 9999;
+  transform: translate(-50%, -50%);
+  will-change: left, top, width, height;
+  transition: background-color 0.2s ease;
+}
+
+/* ─── Hint ────────────────────────────────────────────────────────── */
+#hint-trigger {
+  position: fixed;
+  bottom: 28px;
+  right: 28px;
+  z-index: 50;
+  pointer-events: all;
+  cursor: none;
+  background: transparent;
+  border: none;
+  font-family: var(--font-mono);
+  font-size: 18px;
+  color: var(--white);
+  opacity: 0.2;
+  line-height: 1;
+  padding: 10px;
+  transition: opacity 0.3s ease;
+}
+#hint-trigger:hover { opacity: 0.7; }
+
+#hint-panel {
+  position: fixed;
+  bottom: 76px;
+  right: 28px;
+  z-index: 50;
+  background: #0d0d0d;
+  border: 1px solid #1f1f1f;
+  border-radius: 12px;
+  padding: 20px;
+  max-width: 250px;
+  pointer-events: all;
+  opacity: 0;
+  transform: translateY(16px);
+  transition: opacity 0.4s ease, transform 0.4s ease;
+}
+#hint-panel.open { opacity: 1; transform: translateY(0); pointer-events: all; }
+
+.hint-name {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--white);
+  margin-bottom: 14px;
+  opacity: 0.9;
+}
+
+.hint-body {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.9;
+  color: #666;
+  margin-bottom: 14px;
+}
+
+.hint-end { font-family: var(--font-mono); font-size: 14px; color: var(--white); }
+
+/* ─── Content Sections (overlaid on canvas) ───────────────────────── */
+#sections-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.section-block {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 0 10vw;
+  opacity: 0;
+  transition: opacity 0.8s ease;
+}
+.section-block.visible { opacity: 1; }
+
+.section-inner {
+  max-width: 420px;
+}
+
+.section-tag {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: rgba(255,255,255,0.25);
+  text-transform: uppercase;
+  margin-bottom: 16px;
+}
+
+.section-heading {
+  font-family: var(--font-mono);
+  font-size: clamp(18px, 2.5vw, 28px);
+  font-weight: 400;
+  color: var(--off-white);
+  line-height: 1.35;
+  margin-bottom: 20px;
+}
+
+.section-body {
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 300;
+  line-height: 1.85;
+  color: rgba(255,255,255,0.45);
+}
+
+/* ─── Hero Content ────────────────────────────────────────────────── */
+#hero-text {
+  position: fixed;
+  bottom: 80px;
+  left: 10vw;
+  z-index: 6;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.8s ease;
+}
+#hero-text.visible { opacity: 1; }
+
+#hero-tagline {
+  font-family: var(--font-mono);
+  font-size: clamp(11px, 1.2vw, 14px);
+  letter-spacing: 0.08em;
+  color: rgba(255,255,255,0.35);
+  line-height: 2;
+}
+
+#hero-sub {
+  font-family: var(--font-mono);
+  font-size: clamp(10px, 1vw, 12px);
+  color: rgba(255,255,255,0.2);
+  margin-top: 8px;
+  letter-spacing: 0.05em;
+}
+
+/* ─── Seed Display (faint, survival state) ────────────────────────── */
+#seed-display {
+  position: fixed;
+  bottom: 28px;
+  left: 28px;
+  z-index: 6;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  color: rgba(255,255,255,0.06);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 1.2s ease;
+}
+#seed-display.visible { opacity: 1; }
+
+/* ─── Phase Overlay Texts ─────────────────────────────────────────── */
+.phase-overlay {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 6;
+  text-align: center;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.8s ease;
+}
+.phase-overlay.visible { opacity: 1; }
+
+.phase-overlay-tag {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.2);
+  margin-bottom: 10px;
+}
+
+.phase-overlay-text {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: rgba(255,255,255,0.35);
+  line-height: 1.8;
+}
+
+/* ─── End White Overlay ───────────────────────────────────────────── */
+#end-white {
+  position: fixed;
+  inset: 0;
+  background: var(--white);
+  z-index: 100;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.5s ease;
 }
