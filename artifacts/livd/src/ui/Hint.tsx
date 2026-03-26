@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Dot } from "lucide-react";
+import { state } from "../store/state";
 
 export function Hint() {
   const [open, setOpen] = useState(false);
@@ -8,26 +8,20 @@ export function Hint() {
     <>
       <button
         id="hint-trigger"
-        aria-label="Philosophy"
+        aria-label="About"
         onClick={() => setOpen((o) => !o)}
       >
         ·
       </button>
       <div id="hint-panel" className={open ? "open" : ""}>
-        <div className="hint-name">·livd</div>
+        <div className="hint-title">·livd</div>
         <div className="hint-body">
-          not a product.{"\n"}not a service.{"\n"}a moment.{"\n\n"}
-          everything that exists will not.{"\n"}
-          but it exists now.{"\n"}
-          that is enough.{"\n\n"}
-          your session seed: #{" "}
-          <span style={{ color: "rgba(255,255,255,0.55)", fontFamily: "var(--font-mono)" }} id="seed-inline" />
-          {"\n\n"}
-          the geometry you watched form{"\n"}
-          has never existed before.{"\n"}
-          it will not exist again.
+          {`you are observing an entity.\n\nnot a demonstration.\nnot a metaphor.\n\nthe website itself\nis the thing that lives\nand dies.\n\nscroll. read. reach the end.\nsomething will happen.\n\n`}
+          <span style={{ color: "rgba(255,255,255,0.2)", fontSize: "10px", letterSpacing: "0.14em" }}>
+            session #{state.sessionSeed}
+          </span>
         </div>
-        <div className="hint-end">·</div>
+        <div className="hint-dot">·</div>
       </div>
     </>
   );

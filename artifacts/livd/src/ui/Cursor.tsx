@@ -3,14 +3,12 @@ import { state, bus, Events } from "../store/state";
 
 export function Cursor() {
   const cursorRef = useRef<HTMLDivElement>(null);
-  const isRed = useRef(false);
-  const curX = useRef(window.innerWidth / 2);
-  const curY = useRef(window.innerHeight / 2);
+  const cx = useRef(window.innerWidth / 2);
+  const cy = useRef(window.innerHeight / 2);
+  let tremorFrame = 0;
 
   useEffect(() => {
     let raf: number;
-    let pulseAnim: ReturnType<typeof setInterval> | null = null;
-    let tremorFrame = 0;
 
     function tick() {
       raf = requestAnimationFrame(tick);
@@ -19,48 +17,35 @@ export function Cursor() {
 
       let tx = state.mouseX, ty = state.mouseY;
 
-      // Gravity during revival
       if (state.cursorGravity) {
-        tx += (state.gravityTarget.x - state.mouseX) * 0.18;
-        ty += (state.gravityTarget.y - state.mouseY) * 0.18;
+        tx += (state.gravityTarget.x - state.mouseX) * 0.2;
+        ty += (state.gravityTarget.y - state.mouseY) * 0.2;
       }
-
-      // Tremor during scroll zone crack
       if (state.cursorTremor) {
         tremorFrame++;
-        if (tremorFrame % 3 === 0) {
-          tx += (Math.random() - 0.5) * 5;
-          ty += (Math.random() - 0.5) * 5;
-        }
+        if (tremorFrame % 4 === 0) { tx += (Math.random() - 0.5) * 7; ty += (Math.random() - 0.5) * 7; }
       }
 
-      // Smooth lerp
-      curX.current += (tx - curX.current) * 0.15;
-      curY.current += (ty - curY.current) * 0.15;
+      cx.current += (tx - cx.current) * 0.14;
+      cy.current += (ty - cy.current) * 0.14;
+      state.cursorX = cx.current;
+      state.cursorY = cy.current;
 
-      state.cursorX = curX.current;
-      state.cursorY = curY.current;
-
-      el.style.left = curX.current + "px";
-      el.style.top = curY.current + "px";
+      el.style.left = cx.current + "px";
+      el.style.top = cy.current + "px";
     }
     raf = requestAnimationFrame(tick);
 
     const offRed = bus.on(Events.CURSOR_RED, () => {
-      isRed.current = true;
       const el = cursorRef.current;
       if (el) el.style.backgroundColor = "#8B0000";
     });
     const offRestore = bus.on(Events.CURSOR_RESTORE, () => {
-      isRed.current = false;
       const el = cursorRef.current;
       if (el) el.style.backgroundColor = "#ffffff";
     });
 
-    return () => {
-      cancelAnimationFrame(raf);
-      offRed(); offRestore();
-    };
+    return () => { cancelAnimationFrame(raf); offRed(); offRestore(); };
   }, []);
 
   return <div id="cursor" ref={cursorRef} />;

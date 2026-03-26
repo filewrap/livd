@@ -1,6 +1,6 @@
 import { initScene, renderer, scene, camera } from "./scene";
 import { initSpacetime, updateSpacetime } from "./spacetime";
-import { initNarrative, updateNarrative, handleScroll, checkSurvivalEnd } from "./narrative";
+import { initNarrative, startLoadingAnimation, updateNarrative, handleScroll } from "./narrative";
 import { state } from "../store/state";
 
 let _started = false;
@@ -8,12 +8,9 @@ let _lastTime = 0;
 
 function isWebGLAvailable(): boolean {
   try {
-    const test = document.createElement("canvas");
-    const gl = test.getContext("webgl2") ?? test.getContext("webgl");
-    return !!gl;
-  } catch {
-    return false;
-  }
+    const c = document.createElement("canvas");
+    return !!(c.getContext("webgl2") ?? c.getContext("webgl"));
+  } catch { return false; }
 }
 
 export async function startEngine(mainCanvas: HTMLCanvasElement) {
@@ -23,6 +20,11 @@ export async function startEngine(mainCanvas: HTMLCanvasElement) {
 
   initScene(mainCanvas);
   initSpacetime();
+
+  // Kick off loading animation immediately (while font loads)
+  startLoadingAnimation();
+
+  // Font loads in parallel
   await initNarrative();
 
   // Mouse tracking
@@ -37,7 +39,6 @@ export async function startEngine(mainCanvas: HTMLCanvasElement) {
     scrollEl.addEventListener("scroll", () => {
       const maxScroll = scrollEl.scrollHeight - scrollEl.clientHeight;
       handleScroll(scrollEl.scrollTop, maxScroll);
-      checkSurvivalEnd(scrollEl.scrollTop, maxScroll);
     }, { passive: true });
   }
 
@@ -48,10 +49,7 @@ function loop(ts: number) {
   requestAnimationFrame(loop);
   const delta = Math.min((ts - _lastTime) / 1000, 0.05);
   _lastTime = ts;
-  const time = ts / 1000;
-
-  updateSpacetime(time);
-  updateNarrative(time, delta);
-
+  updateSpacetime(ts / 1000);
+  updateNarrative(ts / 1000, delta);
   renderer.render(scene, camera);
 }
