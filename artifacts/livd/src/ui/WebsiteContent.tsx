@@ -1,20 +1,33 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { state, bus, Events } from "../store/state";
 import { ArrowDown, Zap, Clock, Infinity, Star } from "lucide-react";
 import gsap from "gsap";
 
-// ─── Center Nav Pill — also hosts the Island during alive/dying phases ────────
+// ─── Center Nav Pill — hosts Island messages AND mobile icon nav ──────────────
 function CenterPill() {
   const linksRef = useRef<HTMLDivElement>(null);
   const msgRef = useRef<HTMLSpanElement>(null);
-  const [msg, setMsg] = useState("");
-  const shown = useRef(false);
+  const shownRef = useRef(false);
+  const pillRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const offShow = bus.on(Events.NAV_MSG_SHOW, (text: string) => {
-      if (shown.current) return;
-      shown.current = true;
-      setMsg(text);
+      if (shownRef.current) {
+        // Update text in place if already shown
+        if (msgRef.current) {
+          gsap.to(msgRef.current, {
+            opacity: 0, duration: 0.1, onComplete: () => {
+              if (msgRef.current) {
+                msgRef.current.textContent = text;
+                gsap.to(msgRef.current, { opacity: 1, duration: 0.2 });
+              }
+            },
+          });
+        }
+        return;
+      }
+      shownRef.current = true;
+      if (msgRef.current) msgRef.current.textContent = text;
       const links = linksRef.current;
       const msgEl = msgRef.current;
       if (links) gsap.to(links, { opacity: 0, duration: 0.22 });
@@ -25,36 +38,61 @@ function CenterPill() {
     });
 
     const offHide = bus.on(Events.NAV_MSG_HIDE, () => {
-      if (!shown.current) return;
-      shown.current = false;
+      if (!shownRef.current) return;
+      shownRef.current = false;
       const links = linksRef.current;
       const msgEl = msgRef.current;
       if (msgEl) {
         gsap.to(msgEl, {
           opacity: 0, duration: 0.22, onComplete: () => {
-            msgEl.style.display = "none";
-            setMsg("");
+            if (msgEl) { msgEl.style.display = "none"; msgEl.textContent = ""; }
           },
         });
       }
       if (links) gsap.to(links, { opacity: 1, duration: 0.32, delay: 0.15 });
+      // Remove warning pulse when message hides
+      pillRef.current?.classList.remove("warning-pulse");
     });
 
     return () => { offShow(); offHide(); };
   }, []);
 
   return (
-    <div className="nav-pill nav-pill-center" id="nav-center-pill">
+    <div className="nav-pill nav-pill-center" id="nav-center-pill" ref={pillRef}>
       <div className="center-links" ref={linksRef}>
-        <a href="#section-observable">observable</a>
-        <span className="nav-sep">·</span>
-        <a href="#section-time">time</a>
-        <span className="nav-sep">·</span>
-        <a href="#section-process">entropy</a>
-        <span className="nav-sep">·</span>
-        <a href="#section-pattern">pattern</a>
+
+        {/* Desktop: full text links */}
+        <div className="center-desktop-links">
+          <a href="#section-observable">observable</a>
+          <span className="nav-sep">·</span>
+          <a href="#section-time">time</a>
+          <span className="nav-sep">·</span>
+          <a href="#section-process">entropy</a>
+          <span className="nav-sep">·</span>
+          <a href="#section-pattern">pattern</a>
+        </div>
+
+        {/* Mobile: icon links only */}
+        <div className="center-mobile-links">
+          <a href="#section-observable" title="observable">
+            <Star size={12} strokeWidth={1.5} />
+          </a>
+          <span className="nav-sep">·</span>
+          <a href="#section-time" title="time">
+            <Clock size={12} strokeWidth={1.5} />
+          </a>
+          <span className="nav-sep">·</span>
+          <a href="#section-process" title="entropy">
+            <Zap size={12} strokeWidth={1.5} />
+          </a>
+          <span className="nav-sep">·</span>
+          <a href="#section-pattern" title="pattern">
+            <Infinity size={12} strokeWidth={1.5} />
+          </a>
+        </div>
+
       </div>
-      <span className="center-msg" ref={msgRef} style={{ display: "none" }}>{msg}</span>
+      <span className="center-msg" ref={msgRef} style={{ display: "none" }} />
     </div>
   );
 }

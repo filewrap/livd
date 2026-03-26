@@ -6,6 +6,7 @@ import { Cursor } from "./ui/Cursor";
 import { Hint } from "./ui/Hint";
 import { PhaseOverlay } from "./ui/PhaseOverlay";
 import { WebsiteContent } from "./ui/WebsiteContent";
+import { CursorHint } from "./ui/CursorHint";
 import "./index.css";
 
 export default function App() {
@@ -26,12 +27,12 @@ export default function App() {
       if (!el) return;
       el.style.opacity = "1";
       el.style.pointerEvents = "all";
-      // Cursor stays black 1.4s after white — the last dark thing
+      // Cursor fades last — stays black briefly as white arrives
       const cursor = document.getElementById("cursor");
       if (cursor) {
         cursor.style.backgroundColor = "#000";
         cursor.style.zIndex = "99999";
-        setTimeout(() => { cursor.style.opacity = "0"; }, 1400);
+        setTimeout(() => { cursor.style.opacity = "0"; }, 2200);
       }
     });
 
@@ -61,6 +62,7 @@ export default function App() {
       <Island />
       <PhaseOverlay />
       <Hint />
+      <CursorHint />
 
       {/* ── End white fill ──────────────────────────────── */}
       <div id="end-white" />

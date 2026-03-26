@@ -13,6 +13,9 @@ function isWebGLAvailable(): boolean {
   } catch { return false; }
 }
 
+// Phases that have 3D-only content — touch can orbit camera
+const _3DPhases = new Set(["substrate", "revival", "conflict", "dominant", "end", "transitioning"]);
+
 export async function startEngine(mainCanvas: HTMLCanvasElement) {
   if (_started) return;
   if (!isWebGLAvailable()) throw new Error("WebGL not available");
@@ -21,10 +24,7 @@ export async function startEngine(mainCanvas: HTMLCanvasElement) {
   initScene(mainCanvas);
   initSpacetime();
 
-  // Kick off loading animation immediately (while font loads)
   startLoadingAnimation();
-
-  // Font loads in parallel
   await initNarrative();
 
   // Mouse tracking
@@ -41,6 +41,41 @@ export async function startEngine(mainCanvas: HTMLCanvasElement) {
       handleScroll(scrollEl.scrollTop, maxScroll);
     }, { passive: true });
   }
+
+  // ── Touch camera orbit during 3D phases ──────────────────────────────────
+  let touchX = 0;
+  let touchY = 0;
+  let touching = false;
+
+  window.addEventListener("touchstart", (e) => {
+    touching = true;
+    touchX = e.touches[0].clientX;
+    touchY = e.touches[0].clientY;
+  }, { passive: true });
+
+  window.addEventListener("touchmove", (e) => {
+    if (!touching || !_3DPhases.has(state.phase)) return;
+    const dx = e.touches[0].clientX - touchX;
+    const dy = e.touches[0].clientY - touchY;
+    touchX = e.touches[0].clientX;
+    touchY = e.touches[0].clientY;
+    // Pan camera left/right — orbit around scene origin
+    camera.position.x += dx * 0.008;
+    camera.position.y -= dy * 0.004;
+    // Clamp
+    camera.position.x = Math.max(-3, Math.min(3, camera.position.x));
+    camera.position.y = Math.max(0, Math.min(3, camera.position.y));
+    camera.lookAt(0, 0, 0);
+  }, { passive: true });
+
+  window.addEventListener("touchend", () => { touching = false; }, { passive: true });
+
+  // Mouse wheel → camera z-distance during 3D phases
+  window.addEventListener("wheel", (e) => {
+    if (!_3DPhases.has(state.phase)) return;
+    camera.position.z += e.deltaY * 0.005;
+    camera.position.z = Math.max(4, Math.min(14, camera.position.z));
+  }, { passive: true });
 
   loop(0);
 }

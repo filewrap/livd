@@ -2,7 +2,7 @@ import * as THREE from "three";
 import gsap from "gsap";
 import { ConvexGeometry } from "three/examples/jsm/geometries/ConvexGeometry.js";
 import { scene, camera, lights } from "./scene";
-import { gravitySources, setSpacetimeOpacity } from "./spacetime";
+import { gravitySources, setSpacetimeOpacity, setSpacetimeOpacityImmediate } from "./spacetime";
 import { createEnemy, EnemyObject, createOrbiter, Orbiter, deepMaterial, createGalaxy, Galaxy } from "./objects";
 import { loadFont, buildTextEnd } from "./text3d";
 import { sampleMeshToPoints, animateParticlesExplode, flashLine, ripple } from "./particles";
@@ -48,6 +48,18 @@ let absorptionCount = 0;
 let conflictActive = false;
 let conflictRaf = 0;
 let enemiesSpawned = false;
+
+// Solar system (alive phase)
+interface Planet {
+  mesh: THREE.Mesh;
+  ring?: THREE.Mesh;
+  radius: number;
+  speed: number;
+  angle: number;
+  tilt: number;
+}
+const planets: Planet[] = [];
+let _warningStartTime = 0;
 
 // Loading canvas
 let _loadCtx: CanvasRenderingContext2D | null = null;
@@ -192,6 +204,41 @@ function spawnAmbientObject() {
   gsap.to(gMat, { opacity: 0.62, duration: 3, ease: "power2.out" });
   gsap.to(cMat, { opacity: 0.75, duration: 3, delay: 0.5, ease: "power2.out" });
   gsap.to(galaxy.coreLight, { intensity: 0.45, duration: 3, ease: "power2.out" });
+
+  // ── Solar system around the galaxy core ──────────────────────────────────
+  const planetDefs = [
+    { r: 1.1, speed: 0.009,  size: 0.052, tilt: 0.25,  color: 0x7799cc, ringOpacity: 0.07 },
+    { r: 1.9, speed: 0.0055, size: 0.068, tilt: 0.42,  color: 0xbb9966, ringOpacity: 0.05 },
+    { r: 2.7, speed: 0.0032, size: 0.038, tilt: 0.12,  color: 0x4466aa, ringOpacity: 0.04 },
+    { r: 3.5, speed: 0.0018, size: 0.085, tilt: 0.62,  color: 0x997755, ringOpacity: 0.035 },
+  ];
+
+  for (const pd of planetDefs) {
+    const geo = new THREE.SphereGeometry(pd.size, 12, 12);
+    const mat = new THREE.MeshPhysicalMaterial({
+      color: pd.color, roughness: 0.55, metalness: 0.25,
+      transparent: true, opacity: 0,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    scene.add(mesh);
+
+    // Orbital ring (thin torus, tilted)
+    const ringGeo = new THREE.TorusGeometry(pd.r, 0.0035, 6, 90);
+    const ringMat = new THREE.MeshBasicMaterial({ color: 0xaabbcc, transparent: true, opacity: 0 });
+    const ring = new THREE.Mesh(ringGeo, ringMat);
+    ring.rotation.x = pd.tilt + Math.PI / 2;
+    ring.rotation.y = rng() * 0.5;
+    scene.add(ring);
+
+    gsap.to(mat, { opacity: 0.5, duration: 4, delay: 1.5 + rng() * 1, ease: "power2.out" });
+    gsap.to(ringMat, { opacity: pd.ringOpacity, duration: 4, delay: 2, ease: "power2.out" });
+
+    planets.push({
+      mesh, ring,
+      radius: pd.r, speed: pd.speed,
+      angle: rng() * Math.PI * 2, tilt: pd.tilt,
+    });
+  }
 }
 
 // ─── Scroll Handler ──────────────────────────────────────────────────────────
@@ -209,6 +256,10 @@ export function handleScroll(scrollTop: number, maxScroll: number) {
     // Galaxy tilts slightly as user scrolls
     if (galaxy) {
       galaxy.points.rotation.z = state.scrollProgress * 0.08;
+      // Planets orbit speed affected by scroll depth
+      planets.forEach((p) => {
+        p.mesh.scale.setScalar(1 + state.scrollProgress * 0.15);
+      });
     }
 
     if (state.scrollProgress > 0.75 && lifeMsgIndex === LIFE_MESSAGES.length) {
@@ -222,24 +273,41 @@ export function handleScroll(scrollTop: number, maxScroll: number) {
     }
   }
 
+  // Minimum 2.5s of warning before triggering auto-scroll to top
   if (state.phase === "warning" && state.scrollProgress >= 0.97 && !_destructionFired) {
-    _destructionFired = true;
-    triggerMemoryReplay();
+    const elapsed = (Date.now() - _warningStartTime) / 1000;
+    if (elapsed >= 2.5) {
+      _destructionFired = true;
+      triggerMemoryReplay();
+    }
   }
 }
 
 // ─── WARNING ─────────────────────────────────────────────────────────────────
 function startWarning() {
+  if (_warningStartTime > 0) return; // prevent double-fire
+  _warningStartTime = Date.now();
   state.cursorTremor = true;
 
-  // Island: anomaly detected
+  // Red vignette on body + center pill warning pulse
+  document.body.classList.add("phase-warning-active");
+  const centerPill = document.getElementById("nav-center-pill");
+  if (centerPill) centerPill.classList.add("warning-pulse");
+
+  // Island sequence: anomaly → memory corrupt → system failure
   showIsland("anomaly detected.", 225);
   setTimeout(() => {
     hideIsland();
     setTimeout(() => {
       showIsland("memory corrupt.", 215);
       bus.emit(Events.ISLAND_BORDER, "rgba(139,0,0,0.8)");
-      setTimeout(hideIsland, 2800);
+      setTimeout(() => {
+        hideIsland();
+        setTimeout(() => {
+          showIsland("system failure.", 205);
+          setTimeout(hideIsland, 2600);
+        }, 1400);
+      }, 3000);
     }, 3000);
   }, 2800);
 
@@ -247,15 +315,19 @@ function startWarning() {
   const bar = document.getElementById("scroll-progress");
   if (bar) bar.style.background = "rgba(139,0,0,0.5)";
 
-  // Galaxy starts to distort / redden as anomaly builds
+  // Galaxy distorts / reddens as anomaly builds — planets wobble
   if (galaxy) {
-    gsap.to(galaxy.coreLight, { intensity: 1.2, duration: 2.5, ease: "power1.out" });
+    gsap.to(galaxy.coreLight, { intensity: 1.8, duration: 2.5, ease: "power1.out" });
     gsap.to(galaxy.starCore.material as THREE.MeshPhysicalMaterial, {
-      emissiveIntensity: 2.8, duration: 2, ease: "power1.out",
+      emissiveIntensity: 3.5, duration: 2, ease: "power1.out",
     });
     const gMat = galaxy.points.material as THREE.PointsMaterial;
-    gsap.to(gMat, { opacity: 0.9, duration: 2, ease: "power1.out" });
+    gsap.to(gMat, { opacity: 0.95, duration: 2, ease: "power1.out" });
   }
+  // Planets get erratic scale during warning
+  planets.forEach((p, i) => {
+    gsap.to(p.mesh.scale, { x: 1.4, y: 1.4, z: 1.4, duration: 1.8, delay: i * 0.3, yoyo: true, repeat: 2 });
+  });
 }
 
 // ─── MEMORY REPLAY ───────────────────────────────────────────────────────────
@@ -263,6 +335,11 @@ function triggerMemoryReplay() {
   state.phase = "replay";
   state.scrollLocked = true;
   state.cursorTremor = false;
+
+  // Remove warning visuals
+  document.body.classList.remove("phase-warning-active");
+  const centerPill = document.getElementById("nav-center-pill");
+  if (centerPill) centerPill.classList.remove("warning-pulse");
 
   const sl = document.getElementById("scroll-layer");
   if (sl) sl.classList.remove("active");
@@ -319,6 +396,9 @@ function beginDestruction() {
 
   // Run HTML destruction sequence
   runDestructionSequence((sectionName) => {
+    // 3D dot burst for this section
+    spawnSectionDots(sectionName);
+
     // Island narrates each death
     const msgs: Record<string, string> = {
       nav: "identity gone.",
@@ -341,8 +421,56 @@ function beginDestruction() {
   });
 }
 
+// ─── Per-section 3D dot burst ────────────────────────────────────────────────
+const SECTION_POS: Record<string, [number, number, number]> = {
+  nav:         [0,     2.4,  0.8],
+  hero:        [-1.2,  1.3,  0.2],
+  observable:  [2.0,   0.5,  0],
+  time:        [-1.8, -0.3,  0],
+  quote:       [0.3,  -0.7,  0],
+  entropy:     [1.8,  -1.1,  0],
+  pattern:     [-1.2, -1.7,  0],
+  footer:      [0,    -2.4,  0],
+};
+
+function spawnSectionDots(sectionName: string) {
+  const pos = SECTION_POS[sectionName];
+  if (!pos) return;
+
+  const count = 55;
+  const buf = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    buf[i * 3]     = pos[0] + (rng() - 0.5) * 0.5;
+    buf[i * 3 + 1] = pos[1] + (rng() - 0.5) * 0.5;
+    buf[i * 3 + 2] = pos[2] + (rng() - 0.5) * 0.4;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(buf, 3));
+  const mat = new THREE.PointsMaterial({
+    color: 0xffffff, size: 0.042, transparent: true, opacity: 0.75, sizeAttenuation: true,
+  });
+  const pts = new THREE.Points(geo, mat);
+  scene.add(pts);
+
+  // Shimmer for 0.4s then blast outward smoothly
+  setTimeout(() => {
+    animateParticlesExplode(pts, 1.4, () => scene.remove(pts));
+  }, 400);
+}
+
 function afterDestruction() {
   state.phase = "substrate";
+
+  // Dissolve planets outward before galaxy goes
+  planets.forEach((p, i) => {
+    gsap.to(p.mesh.material as THREE.MeshPhysicalMaterial, { opacity: 0, duration: 1.2, delay: i * 0.18, ease: "power2.in",
+      onComplete: () => { scene.remove(p.mesh); if (p.ring) scene.remove(p.ring); }
+    });
+    if (p.ring) {
+      gsap.to(p.ring.material as THREE.MeshBasicMaterial, { opacity: 0, duration: 1.0, delay: i * 0.18 });
+    }
+  });
+  planets.length = 0;
 
   // Dissolve galaxy into particles
   if (galaxy) {
@@ -853,8 +981,20 @@ export function updateNarrative(time: number, _delta: number) {
     galaxy.points.rotation.y += 0.00028;
     const corePulse = 1 + Math.sin(time * 1.1) * 0.18;
     galaxy.starCore.scale.set(corePulse, corePulse, corePulse);
-    const lPulse = 0.35 + Math.sin(time * 1.1) * 0.12;
-    galaxy.coreLight.intensity = lPulse;
+    // Corelight managed only in starWarning, not overwritten during alive
+    if (state.phase === "alive") {
+      galaxy.coreLight.intensity = 0.35 + Math.sin(time * 1.1) * 0.12;
+    }
+
+    // ── Solar planets orbit around the core ────────────────────────────────
+    planets.forEach((p) => {
+      p.angle += p.speed * (state.phase === "warning" ? 2.5 : 1);
+      const x = Math.cos(p.angle) * p.radius;
+      const y = Math.sin(p.angle) * Math.sin(p.tilt) * p.radius * 0.35;
+      const z = Math.sin(p.angle) * Math.cos(p.tilt) * p.radius * 0.18;
+      p.mesh.position.set(x, y, z);
+      p.mesh.rotation.y += 0.008;
+    });
   }
 
   // Torus knot rotation during dominant/end
@@ -874,10 +1014,10 @@ export function updateNarrative(time: number, _delta: number) {
     o.mesh.rotation.y += 0.014;
   });
 
-  // Gentle camera arc during substrate/revival/dominant
+  // Gentle camera arc during substrate/revival/dominant (only when not touch-orbiting)
   if (["substrate", "revival", "dominant", "end"].includes(state.phase)) {
-    camera.position.x = Math.sin(time * 0.025) * 0.4;
-    camera.position.y = 1.2 + Math.cos(time * 0.018) * 0.2;
+    camera.position.x += (Math.sin(time * 0.025) * 0.4 - camera.position.x) * 0.005;
+    camera.position.y += (1.2 + Math.cos(time * 0.018) * 0.2 - camera.position.y) * 0.005;
   }
 
   // Dynamic lighting
