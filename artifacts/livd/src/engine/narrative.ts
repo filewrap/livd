@@ -12,6 +12,10 @@ import { state, bus, Events, type Phase } from "../store/state";
 // ─── Seeded random ──────────────────────────────────────────────────────────
 function rng() { return Math.random(); }
 
+// ─── Touch coordination ──────────────────────────────────────────────────────
+let _lastTouchMs = 0;
+export function notifyTouch() { _lastTouchMs = Date.now(); }
+
 // ─── Global scene objects ────────────────────────────────────────────────────
 let ambientObj: THREE.Mesh | null = null;        // (unused — kept for compat)
 let galaxy: Galaxy | null = null;                // alive-phase cosmic background
@@ -1014,10 +1018,14 @@ export function updateNarrative(time: number, _delta: number) {
     o.mesh.rotation.y += 0.014;
   });
 
-  // Gentle camera arc during substrate/revival/dominant (only when not touch-orbiting)
+  // Gentle camera arc — pauses for 2s after any touch input
   if (["substrate", "revival", "dominant", "end"].includes(state.phase)) {
-    camera.position.x += (Math.sin(time * 0.025) * 0.4 - camera.position.x) * 0.005;
-    camera.position.y += (1.2 + Math.cos(time * 0.018) * 0.2 - camera.position.y) * 0.005;
+    if (Date.now() - _lastTouchMs > 2000) {
+      camera.position.x += (Math.sin(time * 0.025) * 0.4 - camera.position.x) * 0.005;
+      camera.position.y += (1.2 + Math.cos(time * 0.018) * 0.2 - camera.position.y) * 0.005;
+    }
+    // Always re-orient toward origin — prevents scene from going off-center after touch
+    camera.lookAt(0, 0, 0);
   }
 
   // Dynamic lighting

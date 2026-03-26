@@ -1,6 +1,6 @@
 import { initScene, renderer, scene, camera } from "./scene";
 import { initSpacetime, updateSpacetime } from "./spacetime";
-import { initNarrative, startLoadingAnimation, updateNarrative, handleScroll } from "./narrative";
+import { initNarrative, startLoadingAnimation, updateNarrative, handleScroll, notifyTouch } from "./narrative";
 import { state } from "../store/state";
 
 let _started = false;
@@ -59,13 +59,15 @@ export async function startEngine(mainCanvas: HTMLCanvasElement) {
     const dy = e.touches[0].clientY - touchY;
     touchX = e.touches[0].clientX;
     touchY = e.touches[0].clientY;
-    // Pan camera left/right — orbit around scene origin
+    // Notify narrative to pause auto-arc for 2s
+    notifyTouch();
+    // Pan camera — orbit around scene origin
     camera.position.x += dx * 0.008;
     camera.position.y -= dy * 0.004;
     // Clamp
     camera.position.x = Math.max(-3, Math.min(3, camera.position.x));
     camera.position.y = Math.max(0, Math.min(3, camera.position.y));
-    camera.lookAt(0, 0, 0);
+    // camera.lookAt is called every frame in updateNarrative for 3D phases
   }, { passive: true });
 
   window.addEventListener("touchend", () => { touching = false; }, { passive: true });

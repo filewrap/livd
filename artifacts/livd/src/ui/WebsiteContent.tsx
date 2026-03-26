@@ -116,9 +116,8 @@ export function WebsiteContent() {
 
         <CenterPill />
 
-        <div className="nav-pill nav-pill-right">
-          <span className="nav-end-dot">·</span>
-        </div>
+        {/* RightPanel renders as a fixed overlay — spacer keeps flex layout balanced */}
+        <div style={{ width: 38, height: 38, flexShrink: 0, pointerEvents: "none" }} />
       </nav>
 
       {/* ── Hero ──────────────────────────────────────────────────── */}

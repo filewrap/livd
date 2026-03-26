@@ -7,6 +7,7 @@ import { Hint } from "./ui/Hint";
 import { PhaseOverlay } from "./ui/PhaseOverlay";
 import { WebsiteContent } from "./ui/WebsiteContent";
 import { CursorHint } from "./ui/CursorHint";
+import { RightPanel } from "./ui/RightPanel";
 import "./index.css";
 
 export default function App() {
@@ -63,6 +64,7 @@ export default function App() {
       <PhaseOverlay />
       <Hint />
       <CursorHint />
+      <RightPanel />
 
       {/* ── End white fill ──────────────────────────────── */}
       <div id="end-white" />
