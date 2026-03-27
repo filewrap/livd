@@ -5,7 +5,7 @@ import { scene, camera, lights } from "./scene";
 import { gravitySources, setSpacetimeOpacity, setSpacetimeOpacityImmediate } from "./spacetime";
 import { createEnemy, EnemyObject, createOrbiter, Orbiter, deepMaterial, createGalaxy, Galaxy } from "./objects";
 import { loadFont, buildTextEnd } from "./text3d";
-import { sampleMeshToPoints, animateParticlesExplode, flashLine, ripple } from "./particles";
+import { sampleMeshToPoints, animateParticlesExplode, makeCircleMat, flashLine, ripple } from "./particles";
 import { runDestructionSequence } from "./destroy";
 import { state, bus, Events, type Phase } from "../store/state";
 
@@ -68,73 +68,77 @@ let _warningStartTime = 0;
 // Loading canvas
 let _loadCtx: CanvasRenderingContext2D | null = null;
 let _loadT = 0;
-let _loadPhase = "forming";
+let _loadPhase = "pulse";
 let _assetsReady = false;
-const PC = 30;
 
-// ─── Loading Canvas ──────────────────────────────────────────────────────────
+// ─── Loading Canvas — blasting dot ──────────────────────────────────────────
+// Dot expands outward (burst), disappears, reforms — repeating pulse.
+// When assets are ready, a final outward flood fills the canvas → alive.
 function drawLoading() {
   if (!_loadCtx) return;
   const ctx = _loadCtx;
-  const cx = 40, cy = 40, r = 22;
-  ctx.clearRect(0, 0, 80, 80);
-  ctx.fillStyle = "#000"; ctx.fillRect(0, 0, 80, 80);
+  const cx = 50, cy = 50;
+  ctx.clearRect(0, 0, 100, 100);
 
-  if (_loadPhase === "forming") {
-    const p = Math.min(_loadT / 1.1, 1), e = 1 - Math.pow(1 - p, 3);
-    for (let i = 0; i < PC; i++) {
-      const a = (i / PC) * Math.PI * 2;
-      const d = r * 3 + (r - r * 3) * e;
-      ctx.beginPath();
-      ctx.arc(cx + Math.cos(a) * d, cy + Math.sin(a) * d, 1.8 * e + 0.4, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(255,255,255,${e * 0.85})`; ctx.fill();
-    }
-    if (_loadT >= 1.1) { _loadPhase = "hold"; _loadT = 0; }
+  if (_loadPhase === "pulse") {
+    // One cycle = 1.4s:  0→0.35 burst out, 0.35→0.7 coast/fade, 0.7→1.0 reform
+    const cycle = 1.4;
+    const t = (_loadT % cycle) / cycle;    // 0 → 1 per cycle
 
-  } else if (_loadPhase === "hold") {
-    for (let i = 0; i < PC; i++) {
-      const a = (i / PC) * Math.PI * 2;
-      ctx.beginPath();
-      ctx.arc(cx + Math.cos(a) * r, cy + Math.sin(a) * r, 2.1, 0, Math.PI * 2);
-      ctx.fillStyle = "rgba(255,255,255,0.85)"; ctx.fill();
+    let radius: number, alpha: number;
+    if (t < 0.35) {
+      // Burst: tiny dot explodes outward
+      const p = t / 0.35;
+      const ease = 1 - Math.pow(1 - p, 2.5);
+      radius = 2 + ease * 26;
+      alpha  = 1 - ease * 0.88;
+    } else if (t < 0.65) {
+      // Linger: barely visible ring coasts outward
+      const p = (t - 0.35) / 0.30;
+      radius = 28 + p * 6;
+      alpha  = (1 - p) * 0.08;
+    } else {
+      // Reform: new dot condenses from nothing
+      const p = (t - 0.65) / 0.35;
+      const ease = p * p * p;
+      radius = 0.5 + ease * 1.8;
+      alpha  = ease;
     }
-    if (_loadT >= 0.4) { _loadPhase = _assetsReady ? "final" : "break"; _loadT = 0; }
 
-  } else if (_loadPhase === "break") {
-    const p = Math.min(_loadT / 0.7, 1), e = p * p;
-    for (let i = 0; i < PC; i++) {
-      const a = (i / PC) * Math.PI * 2;
-      ctx.beginPath();
-      ctx.arc(cx + Math.cos(a) * (r + e * r * 4), cy + Math.sin(a) * (r + e * r * 4), 2.1 * (1 - e * 0.4), 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(255,255,255,${0.85 * (1 - e)})`; ctx.fill();
+    // Soft circular gradient so the burst ring is smooth, not a hard circle
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(radius, 0.5));
+    g.addColorStop(0,   `rgba(255,255,255,${Math.min(alpha * 1.5, 1)})`);
+    g.addColorStop(0.5, `rgba(255,255,255,${alpha})`);
+    g.addColorStop(1,   `rgba(255,255,255,0)`);
+    ctx.beginPath();
+    ctx.arc(cx, cy, Math.max(radius + 4, 0.5), 0, Math.PI * 2);
+    ctx.fillStyle = g;
+    ctx.fill();
+
+    // Switch to final on next cycle boundary (clean t ≈ 0)
+    if (_assetsReady && _loadT % cycle < 0.05 && _loadT > 0.1) {
+      _loadPhase = "final";
+      _loadT = 0;
     }
-    if (_loadT >= 0.7) { _loadPhase = _assetsReady ? "final" : "forming"; _loadT = 0; }
 
   } else if (_loadPhase === "final") {
-    const fp = Math.min(_loadT / 1.1, 1), fe = 1 - Math.pow(1 - fp, 3);
-    if (fp < 1) {
-      for (let i = 0; i < PC; i++) {
-        const a = (i / PC) * Math.PI * 2;
-        const d = r * 2.5 + (r - r * 2.5) * fe;
-        ctx.beginPath();
-        ctx.arc(cx + Math.cos(a) * d, cy + Math.sin(a) * d, 2.1, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(255,255,255,${fe * 0.85})`; ctx.fill();
-      }
-    } else {
-      const et = _loadT - 1.1, ep = Math.min(et / 0.5, 1), eased = ep * ep;
-      const bigR = r * (1 + eased * 30);
-      ctx.beginPath(); ctx.arc(cx, cy, bigR, 0, Math.PI * 2);
-      ctx.fillStyle = "#000"; ctx.fill();
-      for (let i = 0; i < PC; i++) {
-        const a = (i / PC) * Math.PI * 2;
-        ctx.beginPath();
-        ctx.arc(cx + Math.cos(a) * r, cy + Math.sin(a) * r, 2.1, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(255,255,255,${Math.max(0, 0.85 - eased * 1.2)})`; ctx.fill();
-      }
-      if (et >= 0.8) {
-        transitionToAlive();
-        return;
-      }
+    // White flood expands from center filling canvas, then transition
+    const p = Math.min(_loadT / 0.55, 1);
+    const ease = 1 - Math.pow(1 - p, 3);
+    const bigR = ease * 100;
+
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(bigR, 1));
+    g.addColorStop(0,   "rgba(255,255,255,1)");
+    g.addColorStop(0.7, "rgba(255,255,255,0.85)");
+    g.addColorStop(1,   "rgba(255,255,255,0)");
+    ctx.beginPath();
+    ctx.arc(cx, cy, bigR, 0, Math.PI * 2);
+    ctx.fillStyle = g;
+    ctx.fill();
+
+    if (p >= 1) {
+      transitionToAlive();
+      return;
     }
   }
 
@@ -145,6 +149,12 @@ function drawLoading() {
 function transitionToAlive() {
   const ls = document.getElementById("loading-screen");
   if (!ls) return;
+  // Reveal custom cursor now that loading is done
+  const cursor = document.getElementById("cursor");
+  if (cursor) {
+    cursor.style.opacity = "1";
+    cursor.style.transition = "opacity 0.6s ease";
+  }
   gsap.to(ls, {
     opacity: 0, duration: 0.7, ease: "power2.in",
     onComplete: () => {
@@ -209,12 +219,33 @@ function spawnAmbientObject() {
   gsap.to(cMat, { opacity: 0.75, duration: 3, delay: 0.5, ease: "power2.out" });
   gsap.to(galaxy.coreLight, { intensity: 0.45, duration: 3, ease: "power2.out" });
 
-  // ── Solar system around the galaxy core ──────────────────────────────────
+  // ── Sun: bright central star ──────────────────────────────────────────────
+  const sunGeo = new THREE.SphereGeometry(0.22, 20, 20);
+  const sunMat = new THREE.MeshPhysicalMaterial({
+    color: 0xffffbb, emissive: new THREE.Color(0xffcc44), emissiveIntensity: 1.2,
+    roughness: 0.2, metalness: 0, transparent: true, opacity: 0,
+  });
+  const sunMesh = new THREE.Mesh(sunGeo, sunMat);
+  sunMesh.position.set(0, 0, 0);
+  scene.add(sunMesh);
+  gsap.to(sunMat, { opacity: 0.92, duration: 3.5, delay: 0.5, ease: "power2.out" });
+  gsap.to(sunMat, { emissiveIntensity: 0.85, duration: 2, delay: 3, repeat: -1, yoyo: true, ease: "sine.inOut" });
+
+  // Sun corona (invisible torus that radiates)
+  const coronaGeo = new THREE.TorusGeometry(0.3, 0.06, 8, 48);
+  const coronaMat = new THREE.MeshBasicMaterial({ color: 0xffee88, transparent: true, opacity: 0, side: THREE.DoubleSide });
+  const corona = new THREE.Mesh(coronaGeo, coronaMat);
+  corona.rotation.x = Math.PI / 2.2;
+  scene.add(corona);
+  gsap.to(coronaMat, { opacity: 0.04, duration: 4, delay: 1 });
+
+  // ── Solar system planets ──────────────────────────────────────────────────
   const planetDefs = [
-    { r: 1.1, speed: 0.009,  size: 0.052, tilt: 0.25,  color: 0x7799cc, ringOpacity: 0.07 },
-    { r: 1.9, speed: 0.0055, size: 0.068, tilt: 0.42,  color: 0xbb9966, ringOpacity: 0.05 },
-    { r: 2.7, speed: 0.0032, size: 0.038, tilt: 0.12,  color: 0x4466aa, ringOpacity: 0.04 },
-    { r: 3.5, speed: 0.0018, size: 0.085, tilt: 0.62,  color: 0x997755, ringOpacity: 0.035 },
+    { r: 0.75, speed: 0.016,  size: 0.028, tilt: 0.18,  color: 0xaabbcc, ringOpacity: 0 },      // Mercury-like
+    { r: 1.2,  speed: 0.010,  size: 0.044, tilt: 0.28,  color: 0x7799cc, ringOpacity: 0.06 },   // Earth-like
+    { r: 2.0,  speed: 0.0058, size: 0.062, tilt: 0.44,  color: 0xbb9966, ringOpacity: 0.055 },  // Mars-like
+    { r: 2.9,  speed: 0.0031, size: 0.096, tilt: 0.62,  color: 0xccaa77, ringOpacity: 0.09 },   // Jupiter-like (ringed)
+    { r: 3.7,  speed: 0.0018, size: 0.074, tilt: 0.15,  color: 0x8899aa, ringOpacity: 0.12 },   // Saturn-like
   ];
 
   for (const pd of planetDefs) {
@@ -441,7 +472,7 @@ function spawnSectionDots(sectionName: string) {
   const pos = SECTION_POS[sectionName];
   if (!pos) return;
 
-  const count = 55;
+  const count = 60;
   const buf = new Float32Array(count * 3);
   for (let i = 0; i < count; i++) {
     buf[i * 3]     = pos[0] + (rng() - 0.5) * 0.5;
@@ -450,9 +481,8 @@ function spawnSectionDots(sectionName: string) {
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.BufferAttribute(buf, 3));
-  const mat = new THREE.PointsMaterial({
-    color: 0xffffff, size: 0.042, transparent: true, opacity: 0.75, sizeAttenuation: true,
-  });
+  // Circular dots (no more square artifacts)
+  const mat = makeCircleMat(0xffffff, 0.055, 0.8);
   const pts = new THREE.Points(geo, mat);
   scene.add(pts);
 
@@ -1001,6 +1031,13 @@ export function updateNarrative(time: number, _delta: number) {
     });
   }
 
+  // ConvexGeometry revival object — keeps rotating after formation
+  if (mainObjMesh && ["revival", "conflict", "transitioning"].includes(state.phase)) {
+    mainObjMesh.rotation.x += 0.0028;
+    mainObjMesh.rotation.y += 0.0065;
+    mainObjMesh.rotation.z += 0.0018;
+  }
+
   // Torus knot rotation during dominant/end
   if (torusKnot) {
     torusKnot.rotation.x += 0.005;
@@ -1043,8 +1080,8 @@ export async function initNarrative() {
   const loadCanvas = document.getElementById("loading-canvas") as HTMLCanvasElement | null;
   if (loadCanvas) {
     _loadCtx = loadCanvas.getContext("2d");
-    loadCanvas.width = 80;
-    loadCanvas.height = 80;
+    loadCanvas.width = 100;
+    loadCanvas.height = 100;
   }
 
   // Font loads in background

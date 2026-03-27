@@ -52,8 +52,8 @@ html, body {
 }
 
 #loading-canvas {
-  width: 80px;
-  height: 80px;
+  width: 100px;
+  height: 100px;
   display: block;
 }
 
@@ -450,7 +450,7 @@ html, body {
   pointer-events: none;
 }
 
-/* ─── Cursor ──────────────────────────────────────────────────────── */
+/* ─── Cursor — hidden during loading, revealed by JS after init ───── */
 #cursor {
   position: fixed;
   width: 6px;
@@ -461,7 +461,8 @@ html, body {
   pointer-events: none;
   transform: translate(-50%, -50%);
   will-change: left, top;
-  transition: background-color 0.2s ease, opacity 0.4s ease;
+  opacity: 0;                        /* JS sets opacity:1 after loading */
+  transition: background-color 0.2s ease, opacity 0.6s ease;
 }
 
 /* ─── Hint ─────────────────────────────────────────────────────────── */

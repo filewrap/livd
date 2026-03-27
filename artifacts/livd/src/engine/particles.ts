@@ -1,6 +1,32 @@
 import * as THREE from "three";
 import { scene } from "./scene";
 
+// ─── Soft-circular dot texture (prevents square particle artifacts) ────────
+let _dotTex: THREE.Texture | null = null;
+function getDotTex(): THREE.Texture {
+  if (_dotTex) return _dotTex;
+  const sz = 64;
+  const c = document.createElement("canvas");
+  c.width = c.height = sz;
+  const ctx = c.getContext("2d")!;
+  const g = ctx.createRadialGradient(sz / 2, sz / 2, 0, sz / 2, sz / 2, sz / 2);
+  g.addColorStop(0,    "rgba(255,255,255,1)");
+  g.addColorStop(0.45, "rgba(255,255,255,0.95)");
+  g.addColorStop(0.75, "rgba(255,255,255,0.4)");
+  g.addColorStop(1,    "rgba(255,255,255,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, sz, sz);
+  _dotTex = new THREE.CanvasTexture(c);
+  return _dotTex;
+}
+
+export function makeCircleMat(color = 0xffffff, size = 0.045, opacity = 1): THREE.PointsMaterial {
+  return new THREE.PointsMaterial({
+    color, size, transparent: true, opacity, sizeAttenuation: true,
+    map: getDotTex(), alphaTest: 0.02, depthWrite: false,
+  });
+}
+
 // ─── Sample surface of a mesh as Points ───────────────────────────────────
 export function sampleMeshToPoints(mesh: THREE.Mesh, count: number, color = 0xffffff): THREE.Points {
   mesh.updateMatrixWorld(true);
@@ -18,8 +44,7 @@ export function sampleMeshToPoints(mesh: THREE.Mesh, count: number, color = 0xff
   const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.BufferAttribute(buf, 3));
 
-  const mat = new THREE.PointsMaterial({ color, size: 0.045, transparent: true, opacity: 1, sizeAttenuation: true });
-  return new THREE.Points(geo, mat);
+  return new THREE.Points(geo, makeCircleMat(color, 0.045));
 }
 
 // ─── Animate particles outward and fade ───────────────────────────────────
