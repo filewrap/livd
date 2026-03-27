@@ -78,4 +78,5 @@ export const Events = {
   CURSOR_RESTORE:  "cursor:restore",
   PHASE_OVERLAY:   "phase:overlay",
   END_WHITE:       "end:white",
+  GALAXY_REBUILD:  "galaxy:rebuild",
 } as const;

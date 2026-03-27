@@ -56,86 +56,131 @@ let enemiesSpawned = false;
 // Solar system (alive phase)
 interface Planet {
   mesh: THREE.Mesh;
-  ring?: THREE.Mesh;
+  ring?: THREE.Mesh;    // orbital path ring
+  ownRing?: THREE.Mesh; // planet's own rings (Saturn, Uranus)
   radius: number;
   speed: number;
   angle: number;
   tilt: number;
 }
 const planets: Planet[] = [];
+let sunMeshes: THREE.Object3D[] = []; // all sun objects for cleanup
 let _warningStartTime = 0;
+let _lastIslandMs = 0; // debounce for fragmentEnemy island messages
 
 // Loading canvas
 let _loadCtx: CanvasRenderingContext2D | null = null;
 let _loadT = 0;
-let _loadPhase = "pulse";
+let _loadPhase = "dot";
 let _assetsReady = false;
 
-// ─── Loading Canvas — blasting dot ──────────────────────────────────────────
-// Dot expands outward (burst), disappears, reforms — repeating pulse.
-// When assets are ready, a final outward flood fills the canvas → alive.
+// ─── Loading particles ────────────────────────────────────────────────────────
+const LP_COUNT = 18;
+interface LPart { angle: number; size: number; }
+let _lp: LPart[] = [];
+function _initLP() {
+  _lp = Array.from({ length: LP_COUNT }, (_, i) => ({
+    angle: (i / LP_COUNT) * Math.PI * 2 + (Math.random() - 0.5) * 0.28,
+    size:  1.0 + Math.random() * 0.9,
+  }));
+}
+
+// ─── Loading Canvas — supernova starburst ────────────────────────────────────
+// 1. "dot"    (~0.5s)  — single pulsing dot at center
+// 2. "blast"  (~1.0s)  — 18 mini-dots shoot outward like supernova debris
+// 3. "return" (~0.8s)  — all mini-dots fly back and collapse into single dot
+// Repeat until assets ready, then "final" white flood.
+// NO radial gradient discs — only individual ctx.arc() dots.
 function drawLoading() {
   if (!_loadCtx) return;
   const ctx = _loadCtx;
   const cx = 50, cy = 50;
   ctx.clearRect(0, 0, 100, 100);
 
-  if (_loadPhase === "pulse") {
-    // One cycle = 1.4s:  0→0.35 burst out, 0.35→0.7 coast/fade, 0.7→1.0 reform
-    const cycle = 1.4;
-    const t = (_loadT % cycle) / cycle;    // 0 → 1 per cycle
-
-    let radius: number, alpha: number;
-    if (t < 0.35) {
-      // Burst: tiny dot explodes outward
-      const p = t / 0.35;
-      const ease = 1 - Math.pow(1 - p, 2.5);
-      radius = 2 + ease * 26;
-      alpha  = 1 - ease * 0.88;
-    } else if (t < 0.65) {
-      // Linger: barely visible ring coasts outward
-      const p = (t - 0.35) / 0.30;
-      radius = 28 + p * 6;
-      alpha  = (1 - p) * 0.08;
-    } else {
-      // Reform: new dot condenses from nothing
-      const p = (t - 0.65) / 0.35;
-      const ease = p * p * p;
-      radius = 0.5 + ease * 1.8;
-      alpha  = ease;
+  if (_loadPhase === "dot") {
+    // Pulsing central dot
+    const pulse = 0.85 + Math.sin(_loadT * 9.0) * 0.15;
+    const r = 2.2 * pulse;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(255,255,255,${0.75 + pulse * 0.25})`;
+    ctx.fill();
+    if (_loadT >= 0.5) {
+      _loadPhase = "blast";
+      _loadT = 0;
+      _initLP();
     }
 
-    // Soft circular gradient so the burst ring is smooth, not a hard circle
-    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(radius, 0.5));
-    g.addColorStop(0,   `rgba(255,255,255,${Math.min(alpha * 1.5, 1)})`);
-    g.addColorStop(0.5, `rgba(255,255,255,${alpha})`);
-    g.addColorStop(1,   `rgba(255,255,255,0)`);
-    ctx.beginPath();
-    ctx.arc(cx, cy, Math.max(radius + 4, 0.5), 0, Math.PI * 2);
-    ctx.fillStyle = g;
-    ctx.fill();
+  } else if (_loadPhase === "blast") {
+    const t = Math.min(_loadT / 1.0, 1);
+    // easeOutCubic: fast start, slow end
+    const ease = 1 - Math.pow(1 - t, 3);
+    const MAX_DIST = 34;
 
-    // Switch to final on next cycle boundary (clean t ≈ 0)
-    if (_assetsReady && _loadT % cycle < 0.05 && _loadT > 0.1) {
-      _loadPhase = "final";
-      _loadT = 0;
+    _lp.forEach((p) => {
+      const dist = ease * MAX_DIST;
+      // Alpha: full for first half, fades second half
+      const alpha = t < 0.55 ? 0.92 : 0.92 * (1 - (t - 0.55) / 0.45);
+      if (alpha <= 0.01 || dist < 0.5) return;
+      const px = cx + Math.cos(p.angle) * dist;
+      const py = cy + Math.sin(p.angle) * dist;
+      ctx.beginPath();
+      ctx.arc(px, py, Math.max(p.size * (1 - t * 0.25), 0.5), 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+      ctx.fill();
+    });
+    // Center dot shrinks away as particles leave
+    const cAlpha = Math.max(0, (1 - t * 2.5));
+    if (cAlpha > 0.01) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, 2.2 * (1 - t), 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255,255,255,${cAlpha})`;
+      ctx.fill();
+    }
+
+    if (t >= 1) { _loadPhase = "return"; _loadT = 0; }
+
+  } else if (_loadPhase === "return") {
+    const t = Math.min(_loadT / 0.8, 1);
+    // easeInCubic: accelerate toward center
+    const ease = t * t * t;
+    const MAX_DIST = 34;
+
+    _lp.forEach((p) => {
+      const dist = MAX_DIST * (1 - ease);
+      const alpha = t > 0.75 ? 0 : (1 - t / 0.75) * 0.85;
+      if (alpha <= 0.01 || dist < 0.5) return;
+      const px = cx + Math.cos(p.angle) * dist;
+      const py = cy + Math.sin(p.angle) * dist;
+      ctx.beginPath();
+      ctx.arc(px, py, Math.max(p.size * (1 - ease * 0.4), 0.5), 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+      ctx.fill();
+    });
+    // Reformed center dot grows back in
+    if (t > 0.65) {
+      const rp = (t - 0.65) / 0.35;
+      ctx.beginPath();
+      ctx.arc(cx, cy, rp * rp * 2.2, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255,255,255,${rp * rp * 0.9})`;
+      ctx.fill();
+    }
+
+    if (t >= 1) {
+      if (_assetsReady) { _loadPhase = "final"; _loadT = 0; }
+      else              { _loadPhase = "dot";   _loadT = 0; }
     }
 
   } else if (_loadPhase === "final") {
-    // White flood expands from center filling canvas, then transition
-    const p = Math.min(_loadT / 0.55, 1);
-    const ease = 1 - Math.pow(1 - p, 3);
-    const bigR = ease * 100;
-
-    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(bigR, 1));
-    g.addColorStop(0,   "rgba(255,255,255,1)");
-    g.addColorStop(0.7, "rgba(255,255,255,0.85)");
-    g.addColorStop(1,   "rgba(255,255,255,0)");
+    // White flood expands outward — individual particles scatter off-canvas then white fills
+    const p = Math.min(_loadT / 0.5, 1);
+    const ease = 1 - Math.pow(1 - p, 2.5);
+    const bigR = ease * 80;
+    // Draw the flood as a solid white filled circle growing
     ctx.beginPath();
     ctx.arc(cx, cy, bigR, 0, Math.PI * 2);
-    ctx.fillStyle = g;
+    ctx.fillStyle = `rgba(255,255,255,${Math.min(ease * 1.4, 1)})`;
     ctx.fill();
-
     if (p >= 1) {
       transitionToAlive();
       return;
@@ -204,13 +249,12 @@ function beginAlive() {
 }
 
 function spawnAmbientObject() {
-  // Galaxy particle system — the universe before entropy
+  // ── Milky Way galaxy background ──────────────────────────────────────────
   galaxy = createGalaxy();
   scene.add(galaxy.points);
   scene.add(galaxy.starCore);
   scene.add(galaxy.coreLight);
 
-  // Fade in gracefully
   const gMat = galaxy.points.material as THREE.PointsMaterial;
   const cMat = galaxy.starCore.material as THREE.MeshPhysicalMaterial;
   gMat.opacity = 0;
@@ -219,59 +263,106 @@ function spawnAmbientObject() {
   gsap.to(cMat, { opacity: 0.75, duration: 3, delay: 0.5, ease: "power2.out" });
   gsap.to(galaxy.coreLight, { intensity: 0.45, duration: 3, ease: "power2.out" });
 
-  // ── Sun: bright central star ──────────────────────────────────────────────
-  const sunGeo = new THREE.SphereGeometry(0.22, 20, 20);
-  const sunMat = new THREE.MeshPhysicalMaterial({
-    color: 0xffffbb, emissive: new THREE.Color(0xffcc44), emissiveIntensity: 1.2,
-    roughness: 0.2, metalness: 0, transparent: true, opacity: 0,
-  });
-  const sunMesh = new THREE.Mesh(sunGeo, sunMat);
-  sunMesh.position.set(0, 0, 0);
-  scene.add(sunMesh);
-  gsap.to(sunMat, { opacity: 0.92, duration: 3.5, delay: 0.5, ease: "power2.out" });
-  gsap.to(sunMat, { emissiveIntensity: 0.85, duration: 2, delay: 3, repeat: -1, yoyo: true, ease: "sine.inOut" });
+  // ── Sun — layered glow, no scene-lighting artifacts ───────────────────────
+  // Three layers: solid core → warm inner glow → faint outer atmosphere
+  const sunCore = new THREE.Mesh(
+    new THREE.SphereGeometry(0.24, 32, 32),
+    new THREE.MeshBasicMaterial({ color: 0xfffce8, transparent: true, opacity: 0 }),
+  );
+  const sunInner = new THREE.Mesh(
+    new THREE.SphereGeometry(0.34, 24, 24),
+    new THREE.MeshBasicMaterial({ color: 0xffe066, transparent: true, opacity: 0,
+      blending: THREE.AdditiveBlending, depthWrite: false }),
+  );
+  const sunOuter = new THREE.Mesh(
+    new THREE.SphereGeometry(0.52, 16, 16),
+    new THREE.MeshBasicMaterial({ color: 0xff7700, transparent: true, opacity: 0,
+      blending: THREE.AdditiveBlending, depthWrite: false }),
+  );
+  const sunLight = new THREE.PointLight(0xfff4aa, 0, 12);
 
-  // Sun corona (invisible torus that radiates)
-  const coronaGeo = new THREE.TorusGeometry(0.3, 0.06, 8, 48);
-  const coronaMat = new THREE.MeshBasicMaterial({ color: 0xffee88, transparent: true, opacity: 0, side: THREE.DoubleSide });
-  const corona = new THREE.Mesh(coronaGeo, coronaMat);
-  corona.rotation.x = Math.PI / 2.2;
-  scene.add(corona);
-  gsap.to(coronaMat, { opacity: 0.04, duration: 4, delay: 1 });
+  scene.add(sunCore); scene.add(sunInner); scene.add(sunOuter); scene.add(sunLight);
+  sunMeshes = [sunCore, sunInner, sunOuter, sunLight];
 
-  // ── Solar system planets ──────────────────────────────────────────────────
-  const planetDefs = [
-    { r: 0.75, speed: 0.016,  size: 0.028, tilt: 0.18,  color: 0xaabbcc, ringOpacity: 0 },      // Mercury-like
-    { r: 1.2,  speed: 0.010,  size: 0.044, tilt: 0.28,  color: 0x7799cc, ringOpacity: 0.06 },   // Earth-like
-    { r: 2.0,  speed: 0.0058, size: 0.062, tilt: 0.44,  color: 0xbb9966, ringOpacity: 0.055 },  // Mars-like
-    { r: 2.9,  speed: 0.0031, size: 0.096, tilt: 0.62,  color: 0xccaa77, ringOpacity: 0.09 },   // Jupiter-like (ringed)
-    { r: 3.7,  speed: 0.0018, size: 0.074, tilt: 0.15,  color: 0x8899aa, ringOpacity: 0.12 },   // Saturn-like
-  ];
+  // Fade in
+  gsap.to((sunCore.material as THREE.MeshBasicMaterial), { opacity: 1.0, duration: 2.5, delay: 0.8, ease: "power2.out" });
+  gsap.to((sunInner.material as THREE.MeshBasicMaterial), { opacity: 0.42, duration: 3.5, delay: 1.0, ease: "power2.out" });
+  gsap.to((sunOuter.material as THREE.MeshBasicMaterial), { opacity: 0.10, duration: 5, delay: 1.5, ease: "power2.out" });
+  gsap.to(sunLight, { intensity: 1.1, duration: 3, delay: 1, ease: "power2.out" });
 
-  for (const pd of planetDefs) {
-    const geo = new THREE.SphereGeometry(pd.size, 12, 12);
-    const mat = new THREE.MeshPhysicalMaterial({
-      color: pd.color, roughness: 0.55, metalness: 0.25,
-      transparent: true, opacity: 0,
+  // Continuous pulse — sun breathes
+  gsap.to(sunCore.scale, { x: 1.025, y: 1.025, z: 1.025, duration: 2.1, yoyo: true, repeat: -1, ease: "sine.inOut", delay: 3 });
+  gsap.to((sunInner.material as THREE.MeshBasicMaterial), { opacity: 0.60, duration: 1.9, yoyo: true, repeat: -1, ease: "sine.inOut", delay: 3 });
+  gsap.to((sunOuter.material as THREE.MeshBasicMaterial), { opacity: 0.16, duration: 2.8, yoyo: true, repeat: -1, ease: "sine.inOut", delay: 3 });
+  gsap.to(sunLight, { intensity: 0.75, duration: 2.3, yoyo: true, repeat: -1, ease: "sine.inOut", delay: 3 });
+
+  // ── Our Solar System — accurate 8 planets (Mercury → Neptune) ────────────
+  // All orbit in the XZ plane (camera at z=8 sees ellipses naturally).
+  // Sizes, colors, speeds are proportionally accurate to real data.
+  const SOL = [
+    // name         r      speed     size    tilt    color       orbitAlpha  hasSaturnRings  hasOwnRings
+    ["Mercury",  0.38,  0.0240,  0.018,  0.122,  0xb5b5b5,   0.10, false, false],
+    ["Venus",    0.62,  0.0150,  0.030,  0.059,  0xe8d5a3,   0.10, false, false],
+    ["Earth",    0.88,  0.0118,  0.032,  0.000,  0x3a7bd5,   0.10, false, false],
+    ["Mars",     1.22,  0.0088,  0.022,  0.032,  0xc1440e,   0.09, false, false],
+    ["Jupiter",  1.90,  0.0042,  0.110,  0.023,  0xc88b3a,   0.09, false, false],
+    ["Saturn",   2.75,  0.0022,  0.092,  0.043,  0xe4d191,   0.09, true,  false],
+    ["Uranus",   3.50,  0.0013,  0.052,  0.013,  0x7de8e8,   0.08, false, true],
+    ["Neptune",  4.20,  0.0009,  0.048,  0.031,  0x3f54ba,   0.08, false, false],
+  ] as const;
+
+  for (let i = 0; i < SOL.length; i++) {
+    const [, r, speed, size, tilt, color, orbitAlpha, hasSaturnRings] = SOL[i];
+
+    const pMat = new THREE.MeshPhysicalMaterial({
+      color, roughness: 0.65, metalness: 0.12, transparent: true, opacity: 0,
     });
-    const mesh = new THREE.Mesh(geo, mat);
-    scene.add(mesh);
+    const pMesh = new THREE.Mesh(new THREE.SphereGeometry(size, 16, 16), pMat);
+    scene.add(pMesh);
+    gsap.to(pMat, { opacity: 0.88, duration: 4, delay: 2 + i * 0.25, ease: "power2.out" });
 
-    // Orbital ring (thin torus, tilted)
-    const ringGeo = new THREE.TorusGeometry(pd.r, 0.0035, 6, 90);
-    const ringMat = new THREE.MeshBasicMaterial({ color: 0xaabbcc, transparent: true, opacity: 0 });
-    const ring = new THREE.Mesh(ringGeo, ringMat);
-    ring.rotation.x = pd.tilt + Math.PI / 2;
-    ring.rotation.y = rng() * 0.5;
-    scene.add(ring);
+    // Orbital path ring (in XZ plane)
+    const orbitGeo = new THREE.TorusGeometry(r, 0.003, 6, 128);
+    const orbitMat = new THREE.MeshBasicMaterial({ color: 0x8899bb, transparent: true, opacity: 0 });
+    const orbitRing = new THREE.Mesh(orbitGeo, orbitMat);
+    orbitRing.rotation.x = Math.PI / 2; // lay flat in XZ plane
+    scene.add(orbitRing);
+    gsap.to(orbitMat, { opacity: orbitAlpha, duration: 4, delay: 2.5, ease: "power2.out" });
 
-    gsap.to(mat, { opacity: 0.5, duration: 4, delay: 1.5 + rng() * 1, ease: "power2.out" });
-    gsap.to(ringMat, { opacity: pd.ringOpacity, duration: 4, delay: 2, ease: "power2.out" });
+    // Saturn's iconic ring disc (around the planet itself)
+    let ownRing: THREE.Mesh | undefined;
+    if (hasSaturnRings) {
+      const sRingGeo = new THREE.RingGeometry(size * 1.5, size * 2.8, 64);
+      const sRingMat = new THREE.MeshBasicMaterial({
+        color: 0xd4c4a0, transparent: true, opacity: 0,
+        side: THREE.DoubleSide, depthWrite: false,
+      });
+      ownRing = new THREE.Mesh(sRingGeo, sRingMat);
+      ownRing.rotation.x = Math.PI * 0.48; // nearly edge-on from camera
+      scene.add(ownRing);
+      gsap.to(sRingMat, { opacity: 0.55, duration: 5, delay: 3.5, ease: "power2.out" });
+    }
+    // Uranus thin ring
+    if (SOL[i][8]) { // hasOwnRings (Uranus)
+      const uRingGeo = new THREE.RingGeometry(size * 1.4, size * 1.9, 48);
+      const uRingMat = new THREE.MeshBasicMaterial({
+        color: 0x99e0e0, transparent: true, opacity: 0,
+        side: THREE.DoubleSide, depthWrite: false,
+      });
+      ownRing = new THREE.Mesh(uRingGeo, uRingMat);
+      ownRing.rotation.x = Math.PI * 0.05; // nearly face-on (Uranus tilted 98°)
+      scene.add(ownRing);
+      gsap.to(uRingMat, { opacity: 0.22, duration: 5, delay: 3.8, ease: "power2.out" });
+    }
 
     planets.push({
-      mesh, ring,
-      radius: pd.r, speed: pd.speed,
-      angle: rng() * Math.PI * 2, tilt: pd.tilt,
+      mesh: pMesh,
+      ring: orbitRing,
+      ownRing,
+      radius: r,
+      speed: speed as number,
+      angle: (i / SOL.length) * Math.PI * 2, // stagger starting positions
+      tilt: tilt as number,
     });
   }
 }
@@ -498,13 +589,27 @@ function afterDestruction() {
   // Dissolve planets outward before galaxy goes
   planets.forEach((p, i) => {
     gsap.to(p.mesh.material as THREE.MeshPhysicalMaterial, { opacity: 0, duration: 1.2, delay: i * 0.18, ease: "power2.in",
-      onComplete: () => { scene.remove(p.mesh); if (p.ring) scene.remove(p.ring); }
+      onComplete: () => {
+        scene.remove(p.mesh);
+        if (p.ring) scene.remove(p.ring);
+        if (p.ownRing) scene.remove(p.ownRing);
+      }
     });
-    if (p.ring) {
-      gsap.to(p.ring.material as THREE.MeshBasicMaterial, { opacity: 0, duration: 1.0, delay: i * 0.18 });
-    }
+    if (p.ring) gsap.to(p.ring.material as THREE.MeshBasicMaterial, { opacity: 0, duration: 1.0, delay: i * 0.18 });
+    if (p.ownRing) gsap.to(p.ownRing.material as THREE.MeshBasicMaterial, { opacity: 0, duration: 1.0, delay: i * 0.18 });
   });
   planets.length = 0;
+
+  // Dissolve sun meshes
+  sunMeshes.forEach((obj) => {
+    if (obj instanceof THREE.Mesh) {
+      const mat = obj.material as THREE.MeshBasicMaterial;
+      gsap.to(mat, { opacity: 0, duration: 1.4, ease: "power2.in", onComplete: () => { scene.remove(obj); } });
+    } else if (obj instanceof THREE.PointLight) {
+      gsap.to(obj, { intensity: 0, duration: 1.2, onComplete: () => { scene.remove(obj); } });
+    }
+  });
+  sunMeshes = [];
 
   // Dissolve galaxy into particles
   if (galaxy) {
@@ -825,9 +930,14 @@ function fragmentEnemy(e: EnemyObject) {
   scene.remove(e.mesh);
   animateParticlesExplode(pts, 0.7, () => scene.remove(pts));
 
-  const msg = ["it fell.", "another one.", "still standing.", "unstoppable."][Math.floor(rng() * 4)];
-  showIsland(msg, msg.length * 10 + 30);
-  setTimeout(hideIsland, 1400);
+  // Debounce island: max one message per 2.2s — prevents gun-fire spam during conflict
+  const now = Date.now();
+  if (now - _lastIslandMs > 2200) {
+    _lastIslandMs = now;
+    const msg = ["it fell.", "another one.", "still standing.", "unstoppable."][Math.floor(rng() * 4)];
+    showIsland(msg, msg.length * 10 + 30);
+    setTimeout(hideIsland, 1600);
+  }
 }
 
 // ─── DOMINANT ────────────────────────────────────────────────────────────────
@@ -929,6 +1039,15 @@ function beginDominant() {
   };
 
   setTimeout(moreWaves, 4500);
+
+  // Hard guarantee — if waves never resolve, force end after 35s
+  setTimeout(() => {
+    if (!state.endTriggered) {
+      conflictActive = false;
+      cancelAnimationFrame(conflictRaf);
+      triggerEnd();
+    }
+  }, 35000);
 }
 
 // ─── END ──────────────────────────────────────────────────────────────────────
@@ -1008,6 +1127,214 @@ function doWhiteFill() {
   requestAnimationFrame(tick);
 }
 
+// ─── SECRET: Galaxy Mode ──────────────────────────────────────────────────────
+// Clears all narrative state and builds a complete, accurate Milky Way galaxy
+// with all 8 planets of our solar system rendered at accurate relative scales.
+export function triggerGalaxyMode() {
+  // Stop all animation loops
+  conflictActive = false;
+  revivalActive = false;
+  cancelAnimationFrame(conflictRaf);
+  cancelAnimationFrame(revivalRaf);
+  state.endTriggered = true;
+  state.phase = "end";
+  state.scrollLocked = true;
+  gsap.killTweensOf("*");
+
+  // Hide all UI overlays
+  document.getElementById("loading-screen")?.remove();
+  document.getElementById("phase-overlay")?.remove();
+  const sl = document.getElementById("scroll-layer");
+  if (sl) { sl.style.opacity = "0"; sl.style.pointerEvents = "none"; }
+  document.getElementById("island")?.remove();
+
+  // Purge scene
+  while (scene.children.length) scene.remove(scene.children[0]);
+
+  // Restore lighting for the reveal
+  scene.background = new THREE.Color(0x00000f);
+  const ambL = new THREE.AmbientLight(0x111133, 0.08);
+  const dirL = new THREE.DirectionalLight(0xfff8e8, 0.5);
+  dirL.position.set(2, 4, 3);
+  scene.add(ambL, dirL);
+
+  // Camera pull back to see the whole solar system
+  gsap.to(camera.position, { x: 0, y: 3.5, z: 10, duration: 2.5, ease: "power2.inOut" });
+
+  // ── Milky Way — barred spiral galaxy, 5500 stars ──────────────────────────
+  const N = 5500;
+  const pos = new Float32Array(N * 3);
+  const col = new Float32Array(N * 3);
+  const ARMS = 2;
+  for (let i = 0; i < N; i++) {
+    // 70% in arms, 20% in bulge, 10% in halo
+    const roll = Math.random();
+    if (roll < 0.70) {
+      // Spiral arms
+      const arm = Math.floor(Math.random() * ARMS);
+      const offset = (arm / ARMS) * Math.PI * 2;
+      const t = Math.pow(Math.random(), 0.55);
+      const r = 0.3 + t * 5.8;
+      const spin = r * 1.85 + offset + (Math.random() - 0.5) * 0.4;
+      const scatter = (0.8 - t * 0.55) * (Math.random() - 0.5) * 0.9;
+      pos[i*3]   = Math.cos(spin) * r + scatter;
+      pos[i*3+1] = (Math.random() - 0.5) * 0.28 * (1 - t * 0.6);
+      pos[i*3+2] = Math.sin(spin) * r + scatter;
+      // Blue-white in arms
+      const b = 0.04 + (1 - t) * 0.14 + Math.random() * 0.05;
+      col[i*3] = b * 0.68; col[i*3+1] = b * 0.82; col[i*3+2] = b * (0.9 + Math.random() * 0.1);
+    } else if (roll < 0.90) {
+      // Bulge — dense center, yellow-white
+      const r = Math.random() * Math.random() * 1.2;
+      const th = Math.random() * Math.PI * 2;
+      const ph = (Math.random() - 0.5) * Math.PI * 0.4;
+      pos[i*3]   = Math.cos(th) * Math.cos(ph) * r;
+      pos[i*3+1] = Math.sin(ph) * r * 0.55;
+      pos[i*3+2] = Math.sin(th) * Math.cos(ph) * r;
+      const b = 0.12 + Math.random() * 0.12;
+      col[i*3] = b; col[i*3+1] = b * 0.92; col[i*3+2] = b * 0.55;
+    } else {
+      // Halo — sparse, blue
+      const r = 4 + Math.random() * 3.5;
+      const th = Math.random() * Math.PI * 2;
+      const ph = (Math.random() - 0.5) * Math.PI;
+      pos[i*3]   = Math.cos(th) * Math.cos(ph) * r;
+      pos[i*3+1] = Math.sin(ph) * r * 0.4;
+      pos[i*3+2] = Math.sin(th) * Math.cos(ph) * r;
+      const b = 0.015 + Math.random() * 0.025;
+      col[i*3] = b * 0.5; col[i*3+1] = b * 0.7; col[i*3+2] = b;
+    }
+  }
+  const mwGeo = new THREE.BufferGeometry();
+  mwGeo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  mwGeo.setAttribute("color", new THREE.BufferAttribute(col, 3));
+  const mwMat = new THREE.PointsMaterial({ size: 0.032, vertexColors: true, transparent: true, opacity: 0, sizeAttenuation: true, depthWrite: false });
+  const milkyWay = new THREE.Points(mwGeo, mwMat);
+  milkyWay.position.set(0, -0.5, -9);
+  milkyWay.rotation.x = Math.PI * 0.08;
+  scene.add(milkyWay);
+  gsap.to(mwMat, { opacity: 0.72, duration: 3, ease: "power2.out" });
+
+  // Galactic center glow
+  const gcGeo = new THREE.SphereGeometry(0.14, 16, 16);
+  const gcMat = new THREE.MeshBasicMaterial({ color: 0xffeedd, transparent: true, opacity: 0 });
+  const galCenter = new THREE.Mesh(gcGeo, gcMat);
+  galCenter.position.set(0, -0.5, -9);
+  scene.add(galCenter);
+  gsap.to(gcMat, { opacity: 0.85, duration: 3.5, ease: "power2.out" });
+  const gcLight = new THREE.PointLight(0xffcc88, 0, 5);
+  gcLight.position.set(0, -0.5, -9);
+  scene.add(gcLight);
+  gsap.to(gcLight, { intensity: 0.5, duration: 3 });
+
+  // ── Our Solar System — full 8 planets, accurate colors + Saturn rings ──────
+  // Orbit in XZ plane at scene origin, galaxy as backdrop
+
+  // Sun layers
+  const sCoreM = new THREE.MeshBasicMaterial({ color: 0xfffde0, transparent: true, opacity: 0 });
+  const sInM   = new THREE.MeshBasicMaterial({ color: 0xffdd44, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
+  const sOutM  = new THREE.MeshBasicMaterial({ color: 0xff6600, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
+  const sunC = new THREE.Mesh(new THREE.SphereGeometry(0.28, 32, 32), sCoreM);
+  const sunI = new THREE.Mesh(new THREE.SphereGeometry(0.40, 24, 24), sInM);
+  const sunO = new THREE.Mesh(new THREE.SphereGeometry(0.60, 16, 16), sOutM);
+  const sunL = new THREE.PointLight(0xfff4aa, 0, 15);
+  scene.add(sunC, sunI, sunO, sunL);
+  gsap.to(sCoreM, { opacity: 1.0, duration: 2, ease: "power2.out" });
+  gsap.to(sInM,   { opacity: 0.50, duration: 3, ease: "power2.out" });
+  gsap.to(sOutM,  { opacity: 0.12, duration: 4, ease: "power2.out" });
+  gsap.to(sunL,   { intensity: 1.4, duration: 2, ease: "power2.out" });
+  // Pulse
+  gsap.to(sunC.scale, { x:1.03, y:1.03, z:1.03, duration:2.0, yoyo:true, repeat:-1, ease:"sine.inOut", delay:2.5 });
+  gsap.to(sInM,       { opacity:0.70, duration:1.8, yoyo:true, repeat:-1, ease:"sine.inOut", delay:2.5 });
+  gsap.to(sOutM,      { opacity:0.20, duration:2.6, yoyo:true, repeat:-1, ease:"sine.inOut", delay:2.5 });
+  gsap.to(sunL,       { intensity:0.85, duration:2.2, yoyo:true, repeat:-1, ease:"sine.inOut", delay:2.5 });
+
+  // Planet definitions — [name, orbitR, speed, radius, inclination, color, ringR1, ringR2]
+  // Distances and sizes are proportionally accurate (compressed for visibility)
+  const GMP: Array<[string, number, number, number, number, number, number, number]> = [
+    ["Mercury", 0.42,  0.024, 0.018, 0.122, 0xb8b8b8,  0,    0   ],
+    ["Venus",   0.70,  0.015, 0.030, 0.059, 0xddc98a,  0,    0   ],
+    ["Earth",   0.98,  0.012, 0.032, 0.000, 0x2a6bbf,  0,    0   ],
+    ["Mars",    1.36,  0.009, 0.022, 0.032, 0xb54020,  0,    0   ],
+    ["Jupiter", 2.10,  0.004, 0.115, 0.023, 0xc8943a,  0,    0   ],
+    ["Saturn",  2.92,  0.002, 0.095, 0.043, 0xe8d88a,  0.14, 0.27], // Saturn ring
+    ["Uranus",  3.65,  0.001, 0.054, 0.013, 0x72e0d8,  0.08, 0.12], // Uranus ring
+    ["Neptune", 4.35,  0.001, 0.050, 0.031, 0x3050cc,  0,    0   ],
+  ];
+
+  const gmPlanets: Array<{ mesh: THREE.Mesh; ownRing?: THREE.Mesh; orbitRing: THREE.Mesh; r: number; speed: number; angle: number; tilt: number }> = [];
+
+  GMP.forEach(([, r, speed, size, tilt, color, ring1, ring2], i) => {
+    // Planet mesh
+    const pm = new THREE.MeshPhysicalMaterial({ color, roughness: 0.6, metalness: 0.1, transparent: true, opacity: 0 });
+    const p = new THREE.Mesh(new THREE.SphereGeometry(size, 20, 20), pm);
+    scene.add(p);
+    gsap.to(pm, { opacity: 0.92, duration: 4, delay: 2.5 + i * 0.3, ease: "power2.out" });
+
+    // Orbital ring
+    const orm = new THREE.MeshBasicMaterial({ color: 0x445566, transparent: true, opacity: 0 });
+    const or = new THREE.Mesh(new THREE.TorusGeometry(r, 0.0028, 6, 140), orm);
+    or.rotation.x = Math.PI / 2;
+    scene.add(or);
+    gsap.to(orm, { opacity: 0.12, duration: 4, delay: 3, ease: "power2.out" });
+
+    let ownRing: THREE.Mesh | undefined;
+    if (ring1 > 0) {
+      // Planet's own ring system
+      const ringColor = i === 5 ? 0xd8c898 : 0x88d8d8; // Saturn gold vs Uranus cyan
+      const ringOpacity = i === 5 ? 0.60 : 0.22;
+      const rgm = new THREE.MeshBasicMaterial({ color: ringColor, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false });
+      ownRing = new THREE.Mesh(new THREE.RingGeometry(size + ring1, size + ring2, 72), rgm);
+      // Saturn nearly edge-on (13° tilt); Uranus face-on (98° tilt)
+      ownRing.rotation.x = i === 5 ? Math.PI * 0.46 : Math.PI * 0.05;
+      scene.add(ownRing);
+      gsap.to(rgm, { opacity: ringOpacity, duration: 5, delay: 3.5 + i * 0.2, ease: "power2.out" });
+    }
+
+    gmPlanets.push({ mesh: p, ownRing, orbitRing: or, r, speed, angle: (i / GMP.length) * Math.PI * 2, tilt });
+  });
+
+  // "you are here" label: a tiny bright dot between Mars and Jupiter
+  // This represents Earth's position in the Milky Way arm
+  const youGeo = new THREE.SphereGeometry(0.015, 8, 8);
+  const youMat = new THREE.MeshBasicMaterial({ color: 0x88aaff, transparent: true, opacity: 0 });
+  const youDot = new THREE.Mesh(youGeo, youMat);
+  youDot.position.set(0.98, 0, 0); // Earth's orbital distance
+  scene.add(youDot);
+  gsap.to(youMat, { opacity: 0.9, duration: 2, delay: 5, ease: "power2.out" });
+  // Pulse the "you are here" dot
+  gsap.to(youDot.scale, { x: 2, y: 2, z: 2, duration: 1.4, yoyo: true, repeat: -1, ease: "sine.inOut", delay: 6 });
+
+  // Continuous slow rotation of the Milky Way background
+  const rotateMW = () => {
+    milkyWay.rotation.y += 0.00018;
+    galCenter.position.copy(new THREE.Vector3(0, -0.5, -9));
+    requestAnimationFrame(rotateMW);
+  };
+  rotateMW();
+
+  // Animate solar system every frame
+  let gmT = 0;
+  const animateGM = () => {
+    gmT += 0.016;
+    gmPlanets.forEach((p) => {
+      p.angle += p.speed;
+      const x = Math.cos(p.angle) * p.r;
+      const z = Math.sin(p.angle) * p.r;
+      const y = Math.sin(p.angle) * p.tilt * p.r * 0.28;
+      p.mesh.position.set(x, y, z);
+      p.mesh.rotation.y += 0.006;
+      if (p.ownRing) p.ownRing.position.set(x, y, z);
+    });
+    // Camera slowly orbits
+    camera.position.x = Math.sin(gmT * 0.018) * 1.2;
+    camera.position.y = 3.0 + Math.sin(gmT * 0.009) * 0.5;
+    camera.lookAt(0, 0, 0);
+    requestAnimationFrame(animateGM);
+  };
+  animateGM();
+}
+
 // ─── Per-frame update ────────────────────────────────────────────────────────
 export function updateNarrative(time: number, _delta: number) {
   // Galaxy slow rotation + star core pulse
@@ -1020,14 +1347,19 @@ export function updateNarrative(time: number, _delta: number) {
       galaxy.coreLight.intensity = 0.35 + Math.sin(time * 1.1) * 0.12;
     }
 
-    // ── Solar planets orbit around the core ────────────────────────────────
+    // ── Solar planets orbit in XZ plane — camera at z=8 sees natural ellipses
     planets.forEach((p) => {
       p.angle += p.speed * (state.phase === "warning" ? 2.5 : 1);
-      const x = Math.cos(p.angle) * p.radius;
-      const y = Math.sin(p.angle) * Math.sin(p.tilt) * p.radius * 0.35;
-      const z = Math.sin(p.angle) * Math.cos(p.tilt) * p.radius * 0.18;
+      const cosA = Math.cos(p.angle);
+      const sinA = Math.sin(p.angle);
+      // XZ orbit (horizontal plane), slight Y inclination per planet tilt
+      const x = cosA * p.radius;
+      const z = sinA * p.radius;
+      const y = sinA * p.tilt * p.radius * 0.3;
       p.mesh.position.set(x, y, z);
-      p.mesh.rotation.y += 0.008;
+      p.mesh.rotation.y += 0.006;
+      // Own rings (Saturn, Uranus) track planet position
+      if (p.ownRing) p.ownRing.position.set(x, y, z);
     });
   }
 
